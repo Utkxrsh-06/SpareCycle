@@ -2,10 +2,7 @@ import base64, socket, threading, time, uuid
 from shared.protocol import send, receive, message, checksum
 from shared.config import Limits, secret
 from worker.hardware_monitor import metrics
-from worker.resource_limiter import lower_priority
-from jobs.csv_processing import process_csv_chunk
-from jobs.image_processing import process_image
-from jobs.benchmark import benchmark
+from worker.process_manager import ProcessManager
 
 class WorkerClient:
  def __init__(self,host,port): self.host=host; self.port=port; self.id=str(uuid.uuid4()); self.sock=None; self.running=True; self.limits=Limits(); self.started=time.time()
@@ -32,18 +29,22 @@ class WorkerClient:
   if p.get('type')!='JOB_ASSIGN': return
   threading.Thread(target=self._execute,args=(p,),daemon=True).start()
  def _execute(self,p):
+  execution=None
   try:
    current=metrics()
    if current['cpu_percent'] >= self.limits.max_cpu_percent-self.limits.cpu_safety_margin or current['ram_percent'] >= self.limits.max_ram_percent: raise RuntimeError('resource safety ceiling reached')
    data=base64.b64decode(p['data'])
    if checksum(data)!=p['checksum']: raise ValueError('input checksum mismatch')
-   lower_priority()
-   if p['job_type']=='csv': result=process_csv_chunk(data,p.get('params',{}).get('numeric_columns'))
-   elif p['job_type']=='image':
-    out,fmt=process_image(data,p['params']['operation'],p['params']); result={'data':base64.b64encode(out).decode(),'format':fmt,'checksum':checksum(out)}
-   elif p['job_type']=='benchmark': result={'value':benchmark(**p['params'])}
-   else: raise ValueError('job type is not allowlisted')
-   send(self.sock,message('JOB_RESULT',job_id=p['job_id'],task_id=p['task_id'],result=result))
+   process_payload={
+    'job_type':p['job_type'],
+    'data':p['data'],
+    'params':p.get('params',{}),
+   }
+   execution=ProcessManager(self.limits.task_timeout_seconds).run(process_payload)
+   if not execution.get('ok'):
+    raise RuntimeError(execution.get('error','job process failed'))
+   result=execution['result']
+   send(self.sock,message('JOB_RESULT',job_id=p['job_id'],task_id=p['task_id'],result=result,process=execution.get('process')))
   except Exception as e:
-   try: send(self.sock,message('JOB_FAILED',job_id=p.get('job_id'),task_id=p.get('task_id'),error=str(e)))
+   try: send(self.sock,message('JOB_FAILED',job_id=p.get('job_id'),task_id=p.get('task_id'),error=str(e),process=execution.get('process') if execution else None))
    except OSError: pass

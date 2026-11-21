@@ -24,6 +24,8 @@ For Linux replace activation with `source .venv/bin/activate`. The dashboard sho
 
 `coordinator/` owns scheduling, SQLite job persistence, failure requeueing and the shared-port HTTP/TCP server. `worker/` handles reconnection, heartbeats, limits and execution. `jobs/` contains deterministic operations. No remote shell commands or arbitrary scripts are accepted.
 
+Job execution is isolated in an OS child process for each assigned task. The worker launches only the fixed allowlisted job handler, applies the configured task timeout, terminates timed-out process trees, and records exit code, signal, elapsed time, CPU time, peak resident memory, and PID in the worker result. These process details are persisted with the corresponding task in SQLite.
+
 The scheduler refuses overloaded/offline workers and uses 70% CPU/RAM safety ceilings by default. Workers lower process priority; portable hard CPU/RAM quotas are not available in pure Python (use Windows Job Objects or Linux cgroups for stricter enforcement). This is for a trusted LAN: the shared secret authenticates peers but traffic is not encrypted. Image and benchmark functions are implemented in the worker allowlist; CSV is the dashboard submission workflow.
 
 ## Testing

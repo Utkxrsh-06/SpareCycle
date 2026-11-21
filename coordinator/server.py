@@ -163,7 +163,11 @@ class Coordinator:
             ):
                 return
 
-            task.update(status="completed", result=payload["result"])
+            task.update(
+                status="completed",
+                result=payload["result"],
+                process=payload.get("process"),
+            )
 
             if worker_id in self.workers:
                 self.workers[worker_id]["active_tasks"] = max(
@@ -190,6 +194,7 @@ class Coordinator:
             if task and task["status"] not in ("completed", "cancelled"):
                 worker = self.workers.get(worker_id, {})
                 worker["active_tasks"] = max(0, worker.get("active_tasks", 1) - 1)
+                task["process"] = payload.get("process")
 
                 if task["attempts"] < self.limits.max_retries:
                     task["status"] = "queued"
