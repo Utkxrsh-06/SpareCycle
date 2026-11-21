@@ -1,0 +1,3 @@
+Open x64 Native Tools for Visual Studio and run:
+
+  cl /std:c11 /O2 /W3 native\windows\process_manager.c psapi.lib advapi32.lib /Fe:native\build\sparecycle-process-manager.exe

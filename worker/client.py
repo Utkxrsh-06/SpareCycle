@@ -39,6 +39,7 @@ class WorkerClient:
     'job_type':p['job_type'],
     'data':p['data'],
     'params':p.get('params',{}),
+    'job_id':p['task_id'],
    }
    execution=ProcessManager(self.limits.task_timeout_seconds).run(process_payload)
    if not execution.get('ok'):
