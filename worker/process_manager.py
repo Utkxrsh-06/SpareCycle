@@ -12,7 +12,6 @@ import psutil
 
 class ProcessManager:
     def __init__(self, timeout):
-        self.timeout = timeout
         self.timeout = float(timeout)
         self.native = self._native_backend()
 

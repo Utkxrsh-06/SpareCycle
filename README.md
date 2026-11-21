@@ -26,9 +26,7 @@ For Linux replace activation with `source .venv/bin/activate`. The dashboard sho
 
 Job execution is isolated in an OS child process for each assigned task. The worker launches only the fixed allowlisted job handler, applies the configured task timeout, terminates timed-out process trees, and records exit code, signal, elapsed time, CPU time, peak resident memory, and PID in the worker result. These process details are persisted with the corresponding task in SQLite.
 
-### Native process manager
-
-The worker prefers a platform-native process manager and falls back to the existing Python `psutil` implementation when no native executable is built.
+The worker prefers a native process manager and falls back to Python `psutil` when no native executable is built.
 
 Build on Linux:
 

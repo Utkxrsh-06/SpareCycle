@@ -2,25 +2,78 @@ import io
 import base64
 import os
 import time
-from pathlib import Path
-from jobs.csv_processing import process_csv_chunk, combine_csv_results, split_csv
-from jobs.image_processing import process_image
-from coordinator.scheduler import allocations
-from worker.hardware_monitor import metrics
-from worker.process_manager import ProcessManager
+
 from PIL import Image
 
+from coordinator.scheduler import allocations
+from jobs.csv_processing import process_csv_chunk, combine_csv_results, split_csv
+from jobs.image_processing import process_image
+from worker.hardware_monitor import metrics
+from worker.process_manager import ProcessManager
+
+
 def test_metrics_are_real_shape():
- m=metrics(); assert m['logical_cores'] >= 1 and m['total_ram'] > 0 and 0 <= m['cpu_percent'] <= 100
+    hardware = metrics()
+    assert hardware["logical_cores"] >= 1
+    assert hardware["total_ram"] > 0
+    assert 0 <= hardware["cpu_percent"] <= 100
+
+
 def test_csv_partition_and_combine():
- data=b'a,b\n1,x\n2,\n3,y\n'; parts=[process_csv_chunk(p) for p in split_csv(data,2)]; result=combine_csv_results(parts)
- assert result['rows']==3 and result['columns']['a']['sum']==6 and result['columns']['a']['mean']==2 and result['missing']['b']==1
+    data = b"a,b\n1,x\n2,\n3,y\n"
+    parts = [
+        process_csv_chunk(part)
+        for part in split_csv(data, 2)
+    ]
+    result = combine_csv_results(parts)
+    assert result["rows"] == 3
+    assert result["columns"]["a"]["sum"] == 6
+    assert result["columns"]["a"]["mean"] == 2
+    assert result["missing"]["b"] == 1
+
+
 def test_image_resize():
- source=io.BytesIO(); Image.new('RGB',(40,30),'red').save(source,format='PNG'); data,fmt=process_image(source.getvalue(),'resize',{'width':10,'height':8,'format':'PNG'})
- assert fmt=='png' and Image.open(io.BytesIO(data)).size==(10,8)
+    source = io.BytesIO()
+    Image.new("RGB", (40, 30), "red").save(source, format="PNG")
+    data, image_format = process_image(
+        source.getvalue(),
+        "resize",
+        {"width": 10, "height": 8, "format": "PNG"},
+    )
+    assert image_format == "png"
+    assert Image.open(io.BytesIO(data)).size == (10, 8)
+
+
 def test_weighted_prefers_idle_machine():
- workers=[{'id':'busy','connected':True,'active_tasks':0,'metrics':{'cpu_percent':45,'ram_percent':60,'available_ram':3_000,'total_ram':10_000,'logical_cores':4}},{'id':'idle','connected':True,'active_tasks':0,'metrics':{'cpu_percent':5,'ram_percent':10,'available_ram':8_000,'total_ram':10_000,'logical_cores':8}}]
- a=allocations(workers,'weighted'); assert a['idle']>a['busy'] and round(sum(a.values()),6)==1
+    workers = [
+        {
+            "id": "busy",
+            "connected": True,
+            "active_tasks": 0,
+            "metrics": {
+                "cpu_percent": 45,
+                "ram_percent": 60,
+                "available_ram": 3000,
+                "total_ram": 10000,
+                "logical_cores": 4,
+            },
+        },
+        {
+            "id": "idle",
+            "connected": True,
+            "active_tasks": 0,
+            "metrics": {
+                "cpu_percent": 5,
+                "ram_percent": 10,
+                "available_ram": 8000,
+                "total_ram": 10000,
+                "logical_cores": 8,
+            },
+        },
+    ]
+    allocations_by_worker = allocations(workers, "weighted")
+    assert allocations_by_worker["idle"] > allocations_by_worker["busy"]
+    assert round(sum(allocations_by_worker.values()), 6) == 1
 
 def test_allowlisted_job_runs_in_child_process():
     payload = {

@@ -6,7 +6,7 @@ TARGET := ../build/sparecycle-process-manager
 
 all: $(TARGET)
 
-$(TARGET): process_manager.c ../include/process_manager.h
+$(TARGET): process_manager.c
 	mkdir -p ../build
 	$(CC) $(CFLAGS) process_manager.c -o $(TARGET)
 

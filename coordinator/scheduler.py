@@ -1,8 +1,16 @@
-from collections import defaultdict
 from shared.config import Limits
 
 def eligible(workers, limits=Limits()):
-    return [w for w in workers if w["connected"] and w.get("metrics") and w["metrics"].get("cpu_percent", 100) < limits.max_cpu_percent-limits.cpu_safety_margin and w["metrics"].get("ram_percent",100) < limits.max_ram_percent]
+    return [
+        worker
+        for worker in workers
+        if worker["connected"]
+        and worker.get("metrics")
+        and worker["metrics"].get("cpu_percent", 100)
+        < limits.max_cpu_percent - limits.cpu_safety_margin
+        and worker["metrics"].get("ram_percent", 100)
+        < limits.max_ram_percent
+    ]
 
 def score(worker, limits=Limits(), max_cores=None):
     m=worker["metrics"]; cpu=max(0, limits.max_cpu_percent-limits.cpu_safety_margin-m["cpu_percent"])/(limits.max_cpu_percent-limits.cpu_safety_margin)
