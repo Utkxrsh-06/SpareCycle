@@ -1,3 +1,742 @@
-<!doctype html><html><head><meta charset="utf-8"><title>SpareCycle</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#e8edf7;font:15px system-ui,sans-serif}header{padding:30px 7%;border-bottom:1px solid #25314d}h1{margin:0;color:#83d1ff}.sub{color:#9cabc5}.grid{padding:25px 7%;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.card{background:#131c31;border:1px solid #263451;border-radius:12px;padding:18px}.value{font-size:28px;font-weight:700}.ok{color:#59d99d}.bad{color:#ff6f7c}progress{width:100%;accent-color:#61b8ff}small{color:#a8b4c9}button,select,input{margin:4px;padding:7px}</style></head><body><header><h1>SpareCycle</h1><div class="sub">Local distributed compute pool · live hardware telemetry</div></header><section class="grid" id="summary"></section><section class="grid" id="workers"></section><section class="grid"><div class="card"><h2>Submit CSV</h2><input id="file" type="file" accept=".csv"><select id="strategy"><option value="weighted">Weighted</option><option value="least_loaded">Least loaded</option><option value="round_robin">Round robin</option></select><button onclick="submitCsv()">Submit</button><div id="notice"></div></div><div class="card"><h2>Jobs</h2><div id="jobs">Loading…</div></div></section><script>
-function bar(v){return `<progress max="100" value="${v||0}"></progress> ${(+v||0).toFixed(1)}%`};async function load(){let s=await (await fetch('/api/state')).json(),w=s.workers;document.querySelector('#summary').innerHTML=`<div class=card><small>Connected laptops</small><div class=value>${w.filter(x=>x.connected).length}</div></div><div class=card><small>Available RAM</small><div class=value>${(w.reduce((a,x)=>a+(x.metrics?.available_ram||0),0)/1e9).toFixed(1)} GB</div></div><div class=card><small>Scheduling default</small><div class=value>Weighted</div></div>`;document.querySelector('#workers').innerHTML=w.map(x=>`<div class=card><h2 class=${x.connected?'ok':'bad'}>${x.name}</h2><small>${x.id} · ${x.connected?'connected':'offline'}</small><p>CPU ${bar(x.metrics?.cpu_percent)}</p><p>RAM ${bar(x.metrics?.ram_percent)}</p><small>${x.metrics?.logical_cores||0} logical cores · ${((x.metrics?.available_ram||0)/1e9).toFixed(1)} GB free · ${x.active_tasks} active tasks</small></div>`).join('')||'<div class=card>No workers connected. Start one with the coordinator IP and port.</div>';document.querySelector('#jobs').innerHTML=s.jobs.map(j=>`<p><b>${j.name}</b> — ${j.status} (${Object.values(j.tasks||{}).filter(t=>t.status==='completed').length}/${j.total||0})</p>`).join('No jobs submitted yet.');}async function submitCsv(){let f=file.files[0];if(!f)return;notice.textContent='Uploading';let b=new Uint8Array(await f.arrayBuffer()),s='';for(let x of b)s+=String.fromCharCode(x);let r=await fetch('/api/jobs/csv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name,data:btoa(s),strategy:strategy.value})});notice.textContent=r.ok?'Submitted':await r.text();load()}load();setInterval(load,1500)</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpareCycle | Cluster Monitor</title>
+  <style>
+    :root {
+      --bg: #0b1018;
+      --panel: #111823;
+      --panel-2: #151d29;
+      --border: #263241;
+      --border-light: #334255;
+      --text: #edf3f8;
+      --muted: #95a4b5;
+      --blue: #64aef5;
+      --green: #53d7a1;
+      --amber: #e8b86b;
+      --red: #ef7d87;
+      --cyan: #66c3d7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 Inter, "Segoe UI", system-ui, sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; }
+    .topbar {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      border-bottom: 1px solid var(--border);
+      background: #0e151f;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 34px; height: 34px;
+      display: grid; place-items: center;
+      border: 1px solid #3c6f96;
+      border-radius: 9px;
+      color: var(--blue);
+      background: #132235;
+      font-weight: 800;
+    }
+    .brand-name { font-size: 16px; font-weight: 750; letter-spacing: .2px; }
+    .brand-sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+    .live-status {
+      display: flex; align-items: center; gap: 8px;
+      color: var(--muted); font-size: 12px;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(83, 215, 161, .08);
+    }
+    main {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 24px 32px 40px;
+    }
+    .page-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .page-heading h1 { margin: 0; font-size: 22px; letter-spacing: -.3px; }
+    .page-heading p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .refresh-label {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric {
+      min-height: 92px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .metric-value {
+      margin-top: 9px;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 750;
+      letter-spacing: -.5px;
+    }
+    .metric-detail { color: var(--muted); font-size: 11px; margin-top: 7px; }
+    .metric.ok .metric-value { color: var(--green); }
+    .metric.warn .metric-value { color: var(--amber); }
+    .metric.bad .metric-value { color: var(--red); }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(280px, .65fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .column { min-width: 0; display: grid; gap: 16px; }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .panel-header {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title { margin: 0; font-size: 14px; font-weight: 720; }
+    .panel-meta { color: var(--muted); font-size: 12px; }
+    .worker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--border);
+    }
+    .worker {
+      min-width: 0;
+      padding: 16px;
+      background: var(--panel);
+    }
+    .worker-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .worker-name {
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .worker-id {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-family: Consolas, "Courier New", monospace;
+      overflow-wrap: anywhere;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 3px 8px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .35px;
+      white-space: nowrap;
+    }
+    .status::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .status.online, .status.completed { color: var(--green); background: rgba(83,215,161,.07); border-color: rgba(83,215,161,.18); }
+    .status.offline, .status.failed, .status.cancelled { color: var(--red); background: rgba(239,125,135,.07); border-color: rgba(239,125,135,.18); }
+    .status.running, .status.assigned { color: var(--blue); background: rgba(100,174,245,.07); border-color: rgba(100,174,245,.18); }
+    .status.queued { color: var(--amber); background: rgba(232,184,107,.07); border-color: rgba(232,184,107,.18); }
+    .resource-row { margin-top: 11px; }
+    .resource-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .resource-label strong { color: var(--text); font-weight: 700; }
+    .bar {
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #202b39;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: var(--blue);
+      transition: width .25s ease;
+    }
+    .bar-fill.ram { background: var(--cyan); }
+    .worker-footer {
+      display: flex;
+      gap: 18px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .worker-footer strong { display: block; color: var(--text); margin-top: 2px; }
+    .form-body { padding: 16px; }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    input[type="file"], select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--border-light);
+      border-radius: 7px;
+      background: #0d141e;
+      color: var(--text);
+      outline: none;
+    }
+    input[type="file"] { padding: 7px; }
+    input[type="file"]::file-selector-button {
+      margin-right: 8px;
+      border: 0;
+      border-radius: 5px;
+      padding: 7px 9px;
+      background: #1d2b3b;
+      color: var(--text);
+    }
+    select { padding: 0 10px; }
+    input:focus, select:focus { border-color: #5688b5; }
+    .submit-button {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid #5594c8;
+      border-radius: 7px;
+      background: #24699c;
+      color: #fff;
+      font-weight: 700;
+    }
+    .submit-button:hover { background: #2b78b0; }
+    .submit-button:disabled { cursor: wait; opacity: .65; }
+    .notice {
+      min-height: 18px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .notice.error { color: var(--red); }
+    .notice.success { color: var(--green); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      height: 38px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: .35px;
+      white-space: nowrap;
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(38,50,65,.72);
+      vertical-align: middle;
+      font-size: 12px;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: rgba(255,255,255,.012); }
+    .job-name { font-weight: 700; max-width: 210px; overflow-wrap: anywhere; }
+    .job-id {
+      color: var(--muted);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11px;
+    }
+    .task-list { margin: 0; padding: 0; list-style: none; }
+    .task-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(38,50,65,.55);
+    }
+    .task-row:last-child { border-bottom: 0; }
+    .task-worker {
+      color: var(--muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    details { margin-top: 7px; }
+    summary { color: var(--blue); cursor: pointer; font-size: 11px; }
+    .process-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .process-grid strong { color: var(--text); font-weight: 650; }
+    .empty {
+      padding: 28px 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .loading {
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .error-banner {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border: 1px solid rgba(239,125,135,.25);
+      border-radius: 8px;
+      background: rgba(239,125,135,.06);
+      color: #ffc1c6;
+      font-size: 12px;
+    }
+    .error-banner.visible { display: block; }
+    @media (max-width: 1120px) {
+      .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .layout { grid-template-columns: minmax(0, 1fr) 300px; }
+    }
+    @media (max-width: 820px) {
+      .topbar { height: 64px; padding: 0 18px; }
+      main { padding: 18px; }
+      .layout { grid-template-columns: 1fr; }
+      .worker-grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .page-heading { align-items: flex-start; }
+      .refresh-label { display: none; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .metric { min-height: 84px; }
+      .process-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">SC</div>
+        <div>
+          <div class="brand-name">SpareCycle</div>
+          <div class="brand-sub">Distributed compute monitor</div>
+        </div>
+      </div>
+      <div class="live-status">
+        <span class="live-dot"></span>
+        <span id="update-status">Connecting</span>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-heading">
+        <div>
+          <h1>Cluster overview</h1>
+          <p>Worker health, scheduling and job execution</p>
+        </div>
+        <div class="refresh-label" id="last-updated">Refreshing…</div>
+      </div>
+
+      <div class="error-banner" id="error-banner"></div>
+      <section class="metrics" id="summary">
+        <div class="metric"><div class="metric-label">Loading metrics</div><div class="metric-value">—</div></div>
+      </section>
+
+      <div class="layout">
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Workers</h2>
+              <span class="panel-meta" id="worker-meta">Waiting for data</span>
+            </div>
+            <div class="worker-grid" id="workers">
+              <div class="loading">Loading workers…</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Jobs</h2>
+              <span class="panel-meta" id="job-meta">Waiting for data</span>
+            </div>
+            <div class="table-wrap" id="jobs">
+              <div class="loading">Loading jobs…</div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="column">
+          <section class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Submit CSV job</h2>
+            </div>
+            <form class="form-body" id="submit-form">
+              <div class="field">
+                <label for="file">CSV file</label>
+                <input id="file" type="file" accept=".csv,text/csv">
+              </div>
+              <div class="field">
+                <label for="strategy">Scheduling policy</label>
+                <select id="strategy">
+                  <option value="weighted">Weighted</option>
+                  <option value="least_loaded">Least loaded</option>
+                  <option value="round_robin">Round robin</option>
+                </select>
+              </div>
+              <button class="submit-button" id="submit-button" type="submit">Submit job</button>
+              <div class="notice" id="notice" role="status"></div>
+            </form>
+          </section>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const stateUrl = "/api/state";
+    let latestState = null;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes)) return "—";
+      if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+      if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+      return `${bytes} bytes`;
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return "—";
+      return new Date(timestamp * 1000).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function formatDuration(job) {
+      if (!job.started) return "—";
+      const end = job.finished || Date.now() / 1000;
+      const seconds = Math.max(0, end - job.started);
+      if (seconds < 60) return `${seconds.toFixed(1)} s`;
+      return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+    }
+
+    function statusClass(status) {
+      return ["completed", "failed", "running", "queued", "assigned", "cancelled", "online", "offline"]
+        .includes(status) ? status : "queued";
+    }
+
+    function getJobTasks(job) {
+      return Object.values(job.tasks || {});
+    }
+
+    function renderSummary(workers, jobs) {
+      const online = workers.filter(worker => worker.connected).length;
+      const offline = workers.length - online;
+      const active = jobs.filter(job => ["running", "assigned"].includes(job.status)).length;
+      const queued = jobs.filter(job => job.status === "queued").length;
+      const completed = jobs.filter(job => job.status === "completed").length;
+      const failed = jobs.filter(job =>
+        job.status === "failed" ||
+        getJobTasks(job).some(task => task.status === "failed")
+      ).length;
+      const availableRam = workers.reduce(
+        (total, worker) => total + (worker.metrics?.available_ram || 0),
+        0
+      );
+      const logicalCores = workers.reduce(
+        (total, worker) => total + (worker.metrics?.logical_cores || 0),
+        0
+      );
+
+      document.querySelector("#summary").innerHTML = `
+        <div class="metric ok">
+          <div class="metric-label">Workers online</div>
+          <div class="metric-value">${online}</div>
+          <div class="metric-detail">${workers.length} registered · ${offline} offline</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Logical CPU cores</div>
+          <div class="metric-value">${logicalCores}</div>
+          <div class="metric-detail">Across connected workers</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Available memory</div>
+          <div class="metric-value">${formatBytes(availableRam)}</div>
+          <div class="metric-detail">Available RAM</div>
+        </div>
+        <div class="metric ${active ? "warn" : ""}">
+          <div class="metric-label">Active jobs</div>
+          <div class="metric-value">${active}</div>
+          <div class="metric-detail">${queued} queued</div>
+        </div>
+        <div class="metric ok">
+          <div class="metric-label">Completed jobs</div>
+          <div class="metric-value">${completed}</div>
+          <div class="metric-detail">Finished successfully</div>
+        </div>
+        <div class="metric ${failed ? "bad" : ""}">
+          <div class="metric-label">Failed jobs</div>
+          <div class="metric-value">${failed}</div>
+          <div class="metric-detail">Tasks or jobs in error</div>
+        </div>`;
+    }
+
+    function renderWorkers(workers) {
+      const online = workers.filter(worker => worker.connected).length;
+      document.querySelector("#worker-meta").textContent =
+        `${online} online · ${workers.length - online} offline`;
+
+      if (!workers.length) {
+        document.querySelector("#workers").innerHTML =
+          '<div class="empty" style="grid-column:1/-1">No workers registered. Start a worker with the coordinator IP and port.</div>';
+        return;
+      }
+
+      document.querySelector("#workers").innerHTML = workers.map(worker => {
+        const metrics = worker.metrics || {};
+        const cpu = Number(metrics.cpu_percent || 0);
+        const ram = Number(metrics.ram_percent || 0);
+        const availableRam = Number(metrics.available_ram || 0);
+        const status = worker.connected ? "online" : "offline";
+        return `
+          <article class="worker">
+            <div class="worker-head">
+              <div>
+                <div class="worker-name">${escapeHtml(worker.name || "Worker")}</div>
+                <div class="worker-id">${escapeHtml(worker.id)}</div>
+              </div>
+              <span class="status ${status}">${status}</span>
+            </div>
+            <div class="resource-row">
+              <div class="resource-label"><span>CPU utilization</span><strong>${cpu.toFixed(1)}%</strong></div>
+              <div class="bar"><div class="bar-fill" style="width:${Math.min(100, cpu)}%"></div></div>
+            </div>
+            <div class="resource-row">
+              <div class="resource-label"><span>Memory utilization</span><strong>${ram.toFixed(1)}%</strong></div>
+              <div class="bar"><div class="bar-fill ram" style="width:${Math.min(100, ram)}%"></div></div>
+            </div>
+            <div class="worker-footer">
+              <div>Available memory<strong>${formatBytes(availableRam)}</strong></div>
+              <div>Logical cores<strong>${metrics.logical_cores || 0}</strong></div>
+              <div>Active jobs<strong>${worker.active_tasks || 0}</strong></div>
+            </div>
+          </article>`;
+      }).join("");
+    }
+
+    function renderProcess(process) {
+      if (!process) return "";
+      const timeout = process.timed_out
+        ? '<span class="status failed">Timed out</span>'
+        : '<span class="status completed">Normal</span>';
+      return `
+        <details>
+          <summary>Execution details</summary>
+          <div class="process-grid">
+            <div>PID <strong>${escapeHtml(process.pid ?? "—")}</strong></div>
+            <div>Exit code <strong>${escapeHtml(process.exit_code ?? "—")}</strong></div>
+            <div>Duration <strong>${process.elapsed_seconds == null ? "—" : `${Number(process.elapsed_seconds).toFixed(3)} s`}</strong></div>
+            <div>CPU time <strong>${process.cpu_seconds == null ? "—" : `${Number(process.cpu_seconds).toFixed(3)} s`}</strong></div>
+            <div>Peak memory <strong>${formatBytes(process.peak_memory_bytes ?? process.peak_rss_bytes)}</strong></div>
+            <div>Termination <strong>${escapeHtml(process.termination_reason || "—")}</strong></div>
+            <div>${timeout}</div>
+          </div>
+        </details>`;
+    }
+
+    function renderJobs(jobs) {
+      document.querySelector("#job-meta").textContent =
+        `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"} submitted`;
+
+      if (!jobs.length) {
+        document.querySelector("#jobs").innerHTML =
+          '<div class="empty">No jobs submitted yet.</div>';
+        return;
+      }
+
+      const rows = jobs.map(job => {
+        const tasks = getJobTasks(job);
+        const completed = tasks.filter(task => task.status === "completed").length;
+        const workerNames = [...new Set(tasks.map(task => task.worker).filter(Boolean))];
+        const status = statusClass(job.status);
+        const taskList = tasks.map(task => `
+          <li class="task-row">
+            <div>
+              <span class="status ${statusClass(task.status)}">${escapeHtml(task.status)}</span>
+              <div class="task-worker">${escapeHtml(task.worker || "Not assigned")}</div>
+              ${renderProcess(task.process)}
+            </div>
+            <div class="job-id">${escapeHtml(task.id?.slice(0, 8) || "")}</div>
+          </li>`).join("");
+
+        return `
+          <tr>
+            <td>
+              <div class="job-name">${escapeHtml(job.name)}</div>
+              <div class="job-id">${escapeHtml(job.id)}</div>
+            </td>
+            <td>${escapeHtml(job.type || "—")}</td>
+            <td>
+              ${workerNames.length
+                ? workerNames.map(worker => escapeHtml(worker)).join("<br>")
+                : '<span class="job-id">Not assigned</span>'}
+            </td>
+            <td><span class="status ${status}">${escapeHtml(job.status)}</span></td>
+            <td>${escapeHtml(formatTime(job.created))}</td>
+            <td>${escapeHtml(formatDuration(job))}</td>
+            <td>
+              <div>${completed}/${tasks.length} tasks</div>
+              ${tasks.length ? `<details><summary>Task details</summary><ul class="task-list">${taskList}</ul></details>` : ""}
+            </td>
+          </tr>`;
+      }).join("");
+
+      document.querySelector("#jobs").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Type</th>
+              <th>Worker</th>
+              <th>Status</th>
+              <th>Submitted</th>
+              <th>Duration</th>
+              <th>Tasks</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    async function loadState() {
+      try {
+        const response = await fetch(stateUrl, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Coordinator returned ${response.status}`);
+        const state = await response.json();
+        latestState = state;
+        const workers = state.workers || [];
+        const jobs = state.jobs || [];
+        renderSummary(workers, jobs);
+        renderWorkers(workers);
+        renderJobs(jobs);
+        document.querySelector("#update-status").textContent = "Live";
+        document.querySelector("#last-updated").textContent =
+          `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+        document.querySelector("#error-banner").classList.remove("visible");
+      } catch (error) {
+        document.querySelector("#update-status").textContent = "Disconnected";
+        const banner = document.querySelector("#error-banner");
+        banner.textContent = `Unable to reach the coordinator: ${error.message}`;
+        banner.classList.add("visible");
+      }
+    }
+
+    document.querySelector("#submit-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const fileInput = document.querySelector("#file");
+      const file = fileInput.files[0];
+      const notice = document.querySelector("#notice");
+      const button = document.querySelector("#submit-button");
+      if (!file) {
+        notice.textContent = "Select a CSV file before submitting.";
+        notice.className = "notice error";
+        return;
+      }
+
+      button.disabled = true;
+      notice.textContent = "Uploading job…";
+      notice.className = "notice";
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let encoded = "";
+        for (let index = 0; index < bytes.length; index += 32768) {
+          encoded += String.fromCharCode(...bytes.subarray(index, index + 32768));
+        }
+        const response = await fetch("/api/jobs/csv", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: file.name,
+            data: btoa(encoded),
+            strategy: document.querySelector("#strategy").value
+          })
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `Submission returned ${response.status}`);
+        }
+        notice.textContent = "Job submitted successfully.";
+        notice.className = "notice success";
+        fileInput.value = "";
+        await loadState();
+      } catch (error) {
+        notice.textContent = error.message;
+        notice.className = "notice error";
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    loadState();
+    setInterval(loadState, 1500);
+  </script>
+</body>
+</html>
