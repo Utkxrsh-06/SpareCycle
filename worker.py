@@ -8,7 +8,11 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    WorkerClient(args.host, args.port).run()
+    worker = WorkerClient(args.host, args.port)
+    try:
+        worker.run()
+    except KeyboardInterrupt:
+        worker.stop()
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import time
 import uuid
 
 from shared.config import Limits, secret
+from shared.machine_identity import get_machine_id
 from shared.protocol import checksum, message, receive, send
 from worker.hardware_monitor import metrics
 from worker.process_manager import ProcessManager
@@ -19,6 +20,11 @@ class WorkerClient:
         self.running = True
         self.limits = Limits()
         self.started = time.time()
+        self.machine_id = get_machine_id()
+        self.hostname = metrics()["hostname"]
+        self.shutdown_requested = False
+        self.active_managers = []
+        self.execution_lock = threading.Lock()
 
     def run(self):
         delay = 1
@@ -34,7 +40,9 @@ class WorkerClient:
                     message(
                         "REGISTER",
                         worker_id=self.id,
-                        name=metrics()["hostname"],
+                        machine_id=self.machine_id,
+                        hostname=self.hostname,
+                        name=self.hostname,
                         metrics=metrics(),
                         uptime=time.time() - self.started,
                         secret=secret(),
@@ -53,23 +61,60 @@ class WorkerClient:
                 while self.running:
                     self._handle(receive(self.sock))
             except Exception:
+                if self.shutdown_requested:
+                    break
                 try:
                     self.sock.close()
                 except Exception:
                     pass
                 time.sleep(delay)
                 delay = min(delay * 2, 15)
+        self.stop()
 
     def _heartbeats(self):
-        while self.running and self.sock:
+        while self.running and self.sock and not self.shutdown_requested:
             try:
-                send(self.sock, message("HEARTBEAT", metrics=metrics()))
+                send(
+                    self.sock,
+                    message(
+                        "HEARTBEAT",
+                        machine_id=self.machine_id,
+                        hostname=self.hostname,
+                        metrics=metrics(),
+                    ),
+                )
             except OSError:
                 return
             time.sleep(self.limits.heartbeat_seconds)
 
+    def stop(self):
+        self.shutdown_requested = True
+        self.running = False
+        with self.execution_lock:
+            managers = list(self.active_managers)
+        for manager in managers:
+            try:
+                manager.cancel()
+            except Exception:
+                pass
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+
     def _handle(self, payload):
-        if payload.get("type") != "JOB_ASSIGN":
+        message_type = payload.get("type")
+        if message_type == "WORKER_SHUTDOWN":
+            self.shutdown_requested = True
+            self.running = False
+            self.stop()
+            return
+        if message_type != "JOB_ASSIGN":
             return
         threading.Thread(
             target=self._execute,
@@ -99,9 +144,17 @@ class WorkerClient:
                 "params": payload.get("params", {}),
                 "job_id": payload["task_id"],
             }
-            execution = ProcessManager(
-                self.limits.task_timeout_seconds
-            ).run(process_payload)
+            manager = ProcessManager(self.limits.task_timeout_seconds)
+            with self.execution_lock:
+                if not self.running or self.shutdown_requested:
+                    return
+                self.active_managers.append(manager)
+            try:
+                execution = manager.run(process_payload)
+            finally:
+                with self.execution_lock:
+                    if manager in self.active_managers:
+                        self.active_managers.remove(manager)
             if not execution.get("ok"):
                 raise RuntimeError(
                     execution.get("error", "job process failed")

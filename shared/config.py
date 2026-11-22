@@ -10,6 +10,7 @@ class Limits:
     worker_timeout_seconds: float = float(os.getenv("SPARECYCLE_WORKER_TIMEOUT", "10"))
     task_timeout_seconds: float = float(os.getenv("SPARECYCLE_TASK_TIMEOUT", "120"))
     max_retries: int = int(os.getenv("SPARECYCLE_MAX_RETRIES", "2"))
+    shutdown_grace_seconds: float = float(os.getenv("SPARECYCLE_SHUTDOWN_GRACE", "5"))
 
 def secret() -> str:
     return os.getenv("SPARECYCLE_SECRET", "change-me-for-a-real-lan")

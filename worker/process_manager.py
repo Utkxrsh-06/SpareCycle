@@ -14,6 +14,8 @@ class ProcessManager:
     def __init__(self, timeout):
         self.timeout = float(timeout)
         self.native = self._native_backend()
+        self._process = None
+        self._cancelled = False
 
     def run(self, payload):
         payload = self._validate_payload(payload)
@@ -28,6 +30,12 @@ class ProcessManager:
         else:
             candidate = root / "native" / "build" / "sparecycle-process-manager"
         return candidate if candidate.is_file() else None
+
+    def cancel(self):
+        self._cancelled = True
+        process = self._process
+        if process is not None:
+            self._terminate_process_tree(process)
 
     def _validate_payload(self, payload):
         allowed = {"csv", "image", "benchmark"}
@@ -109,24 +117,41 @@ class ProcessManager:
             "--cpu-seconds={}".format(int(cpu_seconds or 0)),
         ]
         try:
-            completed = subprocess.run(
+            self._process = psutil.Popen(
                 arguments,
-                input=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(root),
-                timeout=max(5, self.timeout + 5),
-                check=False,
+            )
+            try:
+                self._process.stdin.write(
+                    json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                )
+            except (BrokenPipeError, OSError):
+                pass
+            finally:
+                self._process.stdin.close()
+            stdout, stderr = self._process.communicate(
+                timeout=max(5, self.timeout + 5)
             )
         except (OSError, subprocess.TimeoutExpired) as error:
+            if self._cancelled:
+                return {
+                    "ok": False,
+                    "error": "job process cancelled during worker shutdown",
+                    "process": self._unavailable_metadata(payload["job_id"]),
+                }
             return {
                 "ok": False,
                 "error": "native process manager backend failed: {}".format(error),
                 "process": self._unavailable_metadata(payload["job_id"]),
             }
+        completed_stdout = stdout
+        completed_stderr = stderr
 
         try:
-            native = json.loads(completed.stdout.decode("utf-8"))
+            native = json.loads(completed_stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             return {
                 "ok": False,
@@ -165,7 +190,7 @@ class ProcessManager:
             response["process"] = process
             return response
 
-        error = child_stderr.strip() or completed.stderr.decode("utf-8", "replace").strip()
+        error = child_stderr.strip() or completed_stderr.decode("utf-8", "replace").strip()
         if not error:
             error = "job process produced no structured response"
         return {"ok": False, "error": error, "process": process}
@@ -207,6 +232,7 @@ class ProcessManager:
             [sys.executable, "-u", str(script)],
             **popen_kwargs,
         )
+        self._process = process
         peak_rss = 0
         timed_out = False
         exit_code = None
