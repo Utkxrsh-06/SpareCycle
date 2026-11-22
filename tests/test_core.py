@@ -470,13 +470,21 @@ def test_worker_explicit_shutdown_stops_reconnect_loop():
     worker = WorkerClient.__new__(WorkerClient)
     worker.running = True
     worker.shutdown_requested = False
+    worker.shutdown_event = threading.Event()
     worker.execution_lock = threading.Lock()
+    worker.cleanup_lock = threading.Lock()
+    worker.cleanup_complete = False
+    worker.heartbeat_thread = None
+    worker.execution_threads = set()
     worker.active_managers = []
     worker.sock = None
-    worker.stop()
     worker._handle({"type": "WORKER_SHUTDOWN"})
     assert worker.running is False
     assert worker.shutdown_requested is True
+    assert worker.shutdown_event.is_set()
+    worker.stop()
+    worker.stop()
+    assert worker.cleanup_complete is True
 
 
 def test_active_job_process_can_be_cancelled():
@@ -495,4 +503,42 @@ def test_active_job_process_can_be_cancelled():
     manager.cancel()
     thread.join(timeout=3)
     assert not thread.is_alive()
+
+
+def test_connected_worker_list_excludes_timed_out_worker():
+    coordinator = make_state_coordinator()
+    coordinator.workers["worker-live"] = {
+        "id": "worker-live",
+        "connected": True,
+        "last_heartbeat": time.time(),
+        "active_tasks": 0,
+        "socket": None,
+        "metrics": {},
+    }
+    coordinator.workers["worker-stale"] = {
+        "id": "worker-stale",
+        "connected": True,
+        "last_heartbeat": time.time() - (
+            coordinator.limits.worker_timeout_seconds + 1
+        ),
+        "active_tasks": 0,
+        "socket": None,
+        "metrics": {},
+    }
+    connected = coordinator.connected_worker_list()
+    assert [worker["id"] for worker in connected] == ["worker-live"]
+
+
+def test_worker_shutdown_event_wakes_reconnect_loop():
+    worker = WorkerClient("127.0.0.1", 1)
+    started = time.monotonic()
+    run_thread = threading.Thread(target=worker.run, daemon=True)
+    run_thread.start()
+    time.sleep(0.05)
+    worker.request_shutdown()
+    run_thread.join(timeout=3)
+    elapsed = time.monotonic() - started
+    assert not run_thread.is_alive()
+    assert elapsed < 3
+    assert worker.cleanup_complete is True
 

@@ -1,8 +1,31 @@
+# Local environment and generated Python files
 .env
+.env.*
+!.env.example
 .venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Local SQLite runtime files
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+# Native build artifacts
+native/build/*
+!native/build/.gitignore
+
+# Logs and temporary/editor artifacts
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

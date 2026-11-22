@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/poll.h>
+#include <sys/prctl.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -123,6 +124,7 @@ int main(int argc, char **argv) {
 
     if (child == 0) {
         setsid();
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
         close(stdin_pipe[1]);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);

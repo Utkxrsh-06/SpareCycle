@@ -5,6 +5,7 @@ import sys
 import time
 import json
 import uuid
+import ctypes
 from pathlib import Path
 
 import psutil
@@ -16,6 +17,7 @@ class ProcessManager:
         self.native = self._native_backend()
         self._process = None
         self._cancelled = False
+        self._windows_job = None
 
     def run(self, payload):
         payload = self._validate_payload(payload)
@@ -31,11 +33,106 @@ class ProcessManager:
             candidate = root / "native" / "build" / "sparecycle-process-manager"
         return candidate if candidate.is_file() else None
 
+    def _assign_windows_job(self, process):
+        if os.name != "nt":
+            return
+        try:
+            class IoCounters(ctypes.Structure):
+                _fields_ = [
+                    ("ReadOperationCount", ctypes.c_ulonglong),
+                    ("WriteOperationCount", ctypes.c_ulonglong),
+                    ("OtherOperationCount", ctypes.c_ulonglong),
+                    ("ReadTransferCount", ctypes.c_ulonglong),
+                    ("WriteTransferCount", ctypes.c_ulonglong),
+                    ("OtherTransferCount", ctypes.c_ulonglong),
+                ]
+
+            class BasicLimitInformation(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_ulonglong),
+                    ("PerJobUserTimeLimit", ctypes.c_ulonglong),
+                    ("LimitFlags", ctypes.c_ulong),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", ctypes.c_ulong),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", ctypes.c_ulong),
+                    ("SchedulingClass", ctypes.c_ulong),
+                ]
+
+            class ExtendedLimitInformation(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", BasicLimitInformation),
+                    ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            job = kernel32.CreateJobObjectW(None, None)
+            if not job:
+                return
+            limits = ExtendedLimitInformation()
+            limits.BasicLimitInformation.LimitFlags = 0x00002000
+            if not kernel32.SetInformationJobObject(
+                job,
+                9,
+                ctypes.byref(limits),
+                ctypes.sizeof(limits),
+            ):
+                kernel32.CloseHandle(job)
+                return
+
+            process_handle = kernel32.OpenProcess(
+                0x1F0FFF,
+                False,
+                process.pid,
+            )
+            if not process_handle:
+                kernel32.CloseHandle(job)
+                return
+            if not kernel32.AssignProcessToJobObject(job, process_handle):
+                kernel32.CloseHandle(process_handle)
+                kernel32.CloseHandle(job)
+                return
+            kernel32.CloseHandle(process_handle)
+            self._windows_job = job
+        except (AttributeError, OSError):
+            pass
+
+    def _close_windows_job(self):
+        if os.name != "nt" or self._windows_job is None:
+            return
+        try:
+            ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(
+                self._windows_job
+            )
+        except (AttributeError, OSError):
+            pass
+        self._windows_job = None
+
+    @staticmethod
+    def _linux_child_preexec():
+        if os.name != "posix":
+            return
+        os.setsid()
+        if sys.platform.startswith("linux"):
+            try:
+                libc = ctypes.CDLL(None, use_errno=True)
+                PR_SET_PDEATHSIG = 1
+                SIGKILL = 9
+                libc.prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0)
+            except (AttributeError, OSError):
+                pass
+
     def cancel(self):
         self._cancelled = True
         process = self._process
         if process is not None:
             self._terminate_process_tree(process)
+        self._close_windows_job()
 
     def _validate_payload(self, payload):
         allowed = {"csv", "image", "benchmark"}
@@ -123,7 +220,13 @@ class ProcessManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(root),
+                preexec_fn=(
+                    self._linux_child_preexec
+                    if os.name == "posix"
+                    else None
+                ),
             )
+            self._assign_windows_job(self._process)
             try:
                 self._process.stdin.write(
                     json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -186,6 +289,7 @@ class ProcessManager:
 
         if process["timed_out"]:
             return {"ok": False, "error": "job process timed out", "process": process}
+        self._close_windows_job()
         if response is not None:
             response["process"] = process
             return response
@@ -226,13 +330,20 @@ class ProcessManager:
             "cwd": str(script.resolve().parent.parent),
         }
         if os.name == "posix":
-            popen_kwargs["start_new_session"] = True
+            popen_kwargs["preexec_fn"] = self._linux_child_preexec
+        elif os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(
+                subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                0,
+            )
 
         process = psutil.Popen(
             [sys.executable, "-u", str(script)],
             **popen_kwargs,
         )
         self._process = process
+        self._assign_windows_job(process)
         peak_rss = 0
         timed_out = False
         exit_code = None
@@ -317,6 +428,7 @@ class ProcessManager:
                 "process": metadata,
             }
 
+        self._close_windows_job()
         try:
             response = __import__("json").loads(
                 stdout.decode("utf-8")
@@ -374,3 +486,4 @@ class ProcessManager:
                 process.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
+        self._close_windows_job()

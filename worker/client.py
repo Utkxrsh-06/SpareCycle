@@ -23,56 +23,82 @@ class WorkerClient:
         self.machine_id = get_machine_id()
         self.hostname = metrics()["hostname"]
         self.shutdown_requested = False
+        self.shutdown_event = threading.Event()
         self.active_managers = []
         self.execution_lock = threading.Lock()
+        self.cleanup_lock = threading.Lock()
+        self.cleanup_complete = False
+        self.heartbeat_thread = None
+        self.execution_threads = set()
 
     def run(self):
         delay = 1
-        while self.running:
-            try:
-                self.sock = socket.create_connection(
-                    (self.host, self.port),
-                    timeout=8,
-                )
-                self.sock.settimeout(None)
-                send(
-                    self.sock,
-                    message(
-                        "REGISTER",
-                        worker_id=self.id,
-                        machine_id=self.machine_id,
-                        hostname=self.hostname,
-                        name=self.hostname,
-                        metrics=metrics(),
-                        uptime=time.time() - self.started,
-                        secret=secret(),
-                    ),
-                )
-                ack = receive(self.sock)
-                if ack.get("type") != "REGISTER_ACK":
-                    raise ConnectionError("registration rejected")
+        try:
+            while self.running and not self.shutdown_event.is_set():
+                try:
+                    self.sock = socket.create_connection(
+                        (self.host, self.port),
+                        timeout=1,
+                    )
+                    self.sock.settimeout(0.5)
+                    send(
+                        self.sock,
+                        message(
+                            "REGISTER",
+                            worker_id=self.id,
+                            machine_id=self.machine_id,
+                            hostname=self.hostname,
+                            name=self.hostname,
+                            metrics=metrics(),
+                            uptime=time.time() - self.started,
+                            secret=secret(),
+                        ),
+                    )
+                    ack = receive(self.sock)
+                    if ack.get("type") != "REGISTER_ACK":
+                        raise ConnectionError("registration rejected")
 
-                self.limits = Limits(**ack.get("limits", {}))
-                threading.Thread(
-                    target=self._heartbeats,
-                    daemon=True,
-                ).start()
-                delay = 1
-                while self.running:
-                    self._handle(receive(self.sock))
-            except Exception:
-                if self.shutdown_requested:
+                    self.limits = Limits(**ack.get("limits", {}))
+                    self.heartbeat_thread = threading.Thread(
+                        target=self._heartbeats,
+                        daemon=True,
+                        name="sparecycle-heartbeat",
+                    )
+                    self.heartbeat_thread.start()
+                    delay = 1
+
+                    while self.running and not self.shutdown_event.is_set():
+                        try:
+                            payload = receive(self.sock)
+                        except socket.timeout:
+                            continue
+                        except (ConnectionError, OSError):
+                            break
+                        self._handle(payload)
+                except socket.timeout:
+                    if self.shutdown_event.is_set():
+                        break
+                except (ConnectionError, OSError):
+                    if self.shutdown_event.is_set():
+                        break
+                except Exception:
+                    if self.shutdown_event.is_set():
+                        break
+
+                if self.shutdown_event.is_set():
                     break
                 try:
                     self.sock.close()
                 except Exception:
                     pass
-                time.sleep(delay)
+                if self.shutdown_event.wait(delay):
+                    break
                 delay = min(delay * 2, 15)
-        self.stop()
+        finally:
+            self.stop()
 
     def _heartbeats(self):
-        while self.running and self.sock and not self.shutdown_requested:
+        while self.running and self.sock and not self.shutdown_event.is_set():
             try:
                 send(
                     self.sock,
@@ -85,45 +111,82 @@ class WorkerClient:
                 )
             except OSError:
                 return
-            time.sleep(self.limits.heartbeat_seconds)
+            if self.shutdown_event.wait(self.limits.heartbeat_seconds):
+                return
 
     def stop(self):
+        with self.cleanup_lock:
+            if self.cleanup_complete:
+                return
+            self.shutdown_requested = True
+            self.running = False
+            self.shutdown_event.set()
+
+            with self.execution_lock:
+                managers = list(self.active_managers)
+            for manager in managers:
+                try:
+                    manager.cancel()
+                except Exception:
+                    pass
+
+            if self.sock:
+                try:
+                    self.sock.settimeout(0.2)
+                    self.sock.shutdown(socket.SHUT_RDWR)
+                except (OSError, socket.error):
+                    pass
+                try:
+                    self.sock.close()
+                except OSError:
+                    pass
+                self.sock = None
+
+            heartbeat_thread = self.heartbeat_thread
+            if (
+                heartbeat_thread
+                and heartbeat_thread is not threading.current_thread()
+                and heartbeat_thread.is_alive()
+            ):
+                heartbeat_thread.join(timeout=1)
+
+            with self.execution_lock:
+                execution_threads = [
+                    thread
+                    for thread in self.execution_threads
+                    if thread is not threading.current_thread()
+                ]
+            for execution_thread in execution_threads:
+                if execution_thread.is_alive():
+                    execution_thread.join(timeout=2)
+
+            self.cleanup_complete = True
+
+    def request_shutdown(self):
         self.shutdown_requested = True
         self.running = False
-        with self.execution_lock:
-            managers = list(self.active_managers)
-        for manager in managers:
-            try:
-                manager.cancel()
-            except Exception:
-                pass
-        if self.sock:
-            try:
-                self.sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
-                self.sock.close()
-            except OSError:
-                pass
+        self.shutdown_event.set()
 
     def _handle(self, payload):
         message_type = payload.get("type")
         if message_type == "WORKER_SHUTDOWN":
-            self.shutdown_requested = True
-            self.running = False
-            self.stop()
+            self.request_shutdown()
             return
         if message_type != "JOB_ASSIGN":
             return
-        threading.Thread(
+        execution_thread = threading.Thread(
             target=self._execute,
             args=(payload,),
             daemon=True,
-        ).start()
+            name="sparecycle-job",
+        )
+        with self.execution_lock:
+            self.execution_threads.add(execution_thread)
+        execution_thread.start()
 
     def _execute(self, payload):
         execution = None
+        current_thread = threading.current_thread()
         try:
             current = metrics()
             if (
@@ -188,3 +251,6 @@ class WorkerClient:
                 )
             except OSError:
                 pass
+        finally:
+            with self.execution_lock:
+                self.execution_threads.discard(current_thread)

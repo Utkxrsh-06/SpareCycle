@@ -112,7 +112,47 @@ class Coordinator:
 
     def worker_list(self):
         with self.lock:
+            now = time.time()
+            timeout = getattr(
+                getattr(self, "limits", None),
+                "worker_timeout_seconds",
+                Limits().worker_timeout_seconds,
+            )
+            stale_ids = []
+            for worker in self.workers.values():
+                if (
+                    worker.get("connected")
+                    and now - worker.get("last_heartbeat", now)
+                    > timeout
+                ):
+                    stale_ids.append(worker["id"])
+            for worker_id in stale_ids:
+                self.disconnect(worker_id)
             return [dict(worker, socket=None) for worker in self.workers.values()]
+
+    def connected_worker_list(self):
+        with self.lock:
+            now = time.time()
+            timeout = getattr(
+                getattr(self, "limits", None),
+                "worker_timeout_seconds",
+                Limits().worker_timeout_seconds,
+            )
+            stale_ids = []
+            for worker in self.workers.values():
+                if (
+                    worker.get("connected")
+                    and now - worker.get("last_heartbeat", now)
+                    > timeout
+                ):
+                    stale_ids.append(worker["id"])
+            for worker_id in stale_ids:
+                self.disconnect(worker_id)
+            return [
+                dict(worker, socket=None)
+                for worker in self.workers.values()
+                if worker.get("connected")
+            ]
 
     def register(self, payload, client_socket):
         if payload.get("secret") != secret():
@@ -498,6 +538,7 @@ class Handler(socketserver.BaseRequestHandler):
             body = json.dumps(
                 {
                     "workers": app.worker_list(),
+                    "connected_workers": app.connected_worker_list(),
                     "jobs": list(app.jobs.values()),
                     "limits": app.limits.__dict__,
                 },

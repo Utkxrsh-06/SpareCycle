@@ -135,9 +135,10 @@
     .panel-meta { color: var(--muted); font-size: 12px; }
     .worker-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1px;
-      background: var(--border);
+      grid-template-columns: 1fr;
+      gap: 12px;
+      padding: 12px;
+      background: var(--panel);
     }
     .machine-section {
       grid-column: 1 / -1;
@@ -157,9 +158,10 @@
     .machine-heading strong { color: var(--text); font-size: 13px; }
     .machine-workers {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1px;
-      background: var(--border);
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      padding: 12px;
+      background: var(--panel);
     }
     .worker {
       min-width: 0;
@@ -516,7 +518,7 @@
       .topbar { height: 64px; padding: 0 18px; }
       main { padding: 18px; }
       .layout { grid-template-columns: 1fr; }
-      .worker-grid { grid-template-columns: 1fr; }
+      .machine-workers { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 520px) {
@@ -679,6 +681,16 @@
     const stateUrl = "/api/state";
     let latestState = null;
     let selectedTopologyWorkerId = null;
+    let pollTimer = null;
+    let workerChartIds = "";
+    let renderSignatures = {
+      summary: "",
+      workers: "",
+      jobs: "",
+      topology: "",
+      analytics: "",
+      flow: ""
+    };
     const metricHistory = {
       cpu: [],
       ram: [],
@@ -696,6 +708,14 @@
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
+    }
+
+    function stateSignature(values) {
+      try {
+        return JSON.stringify(values);
+      } catch (_error) {
+        return "";
+      }
     }
 
     function formatBytes(bytes) {
@@ -874,8 +894,10 @@
     function prepareCanvas(canvas) {
       const rect = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(rect.width * ratio));
-      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      const width = Math.max(1, Math.round(rect.width * ratio));
+      const height = Math.max(1, Math.round(rect.height * ratio));
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
       const context = canvas.getContext("2d");
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       return { context, width: rect.width, height: rect.height };
@@ -912,24 +934,40 @@
       const container = document.querySelector("#worker-charts");
       if (!workers.length) {
         container.innerHTML = "";
+        workerChartIds = "";
         return;
       }
-      container.innerHTML = workers.map(worker => {
-        const history = metricHistory.workers[worker.id] || { cpu: [], ram: [] };
-        const cpu = history.cpu.at(-1) ?? Number(worker.metrics?.cpu_percent || 0);
-        const ram = history.ram.at(-1) ?? Number(worker.metrics?.ram_percent || 0);
-        return `
-          <div class="worker-chart">
-            <div class="worker-chart-title">
-              <span>${escapeHtml(worker.name || worker.id.slice(0, 8))}</span>
-              <span>CPU ${cpu.toFixed(0)}% · RAM ${ram.toFixed(0)}%</span>
-            </div>
-            <canvas data-worker-cpu="${escapeHtml(worker.id)}"></canvas>
-          </div>`;
-      }).join("");
+      const ids = workers
+        .map(worker => worker.id || "")
+        .sort()
+        .join("|");
+      if (ids !== workerChartIds) {
+        workerChartIds = ids;
+        container.innerHTML = workers.map(worker => {
+          const history = metricHistory.workers[worker.id] || { cpu: [], ram: [] };
+          const cpu = history.cpu.at(-1) ?? Number(worker.metrics?.cpu_percent || 0);
+          const ram = history.ram.at(-1) ?? Number(worker.metrics?.ram_percent || 0);
+          return `
+            <div class="worker-chart">
+              <div class="worker-chart-title">
+                <span>${escapeHtml(worker.name || worker.id.slice(0, 8))}</span>
+                <span data-worker-chart-values="${escapeHtml(worker.id)}">CPU ${cpu.toFixed(0)}% · RAM ${ram.toFixed(0)}%</span>
+              </div>
+              <canvas data-worker-cpu="${escapeHtml(worker.id)}"></canvas>
+            </div>`;
+        }).join("");
+      }
 
       for (const worker of workers) {
         const history = metricHistory.workers[worker.id];
+        const valuesLabel = container.querySelector(
+          `[data-worker-chart-values="${CSS.escape(worker.id)}"]`
+        );
+        if (valuesLabel) {
+          const cpu = history?.cpu.at(-1) ?? Number(worker.metrics?.cpu_percent || 0);
+          const ram = history?.ram.at(-1) ?? Number(worker.metrics?.ram_percent || 0);
+          valuesLabel.textContent = `CPU ${cpu.toFixed(0)}% · RAM ${ram.toFixed(0)}%`;
+        }
         const canvas = container.querySelector(`[data-worker-cpu="${CSS.escape(worker.id)}"]`);
         if (!canvas || !history) continue;
         const { context, width, height } = prepareCanvas(canvas);
@@ -1011,6 +1049,7 @@
 
     function renderTopology(workers, jobs) {
       const svg = document.querySelector("#topology");
+      workers = workers.filter(worker => worker.connected);
       const assigned = new Set(
         jobs.flatMap(job => getJobTasks(job)
           .filter(task => ["assigned", "running"].includes(task.status))
@@ -1114,6 +1153,8 @@
           (total, worker) => total + Number(worker.active_tasks || 0),
           0
         );
+        const representative = group.workers.find(worker => worker.connected) || group.workers[0];
+        const logicalCores = Number(representative?.metrics?.logical_cores || 0);
 
         markup += `
           <line x1="${188}" y1="${height / 2}" x2="${x - 12}" y2="${y + machineHeight / 2}"
@@ -1135,13 +1176,15 @@
             <rect x="${x + 70}" y="${y + 61}" width="${86 * Math.min(1, cpu / 100)}" height="6" rx="3" fill="#64aef5"/>
             <text x="${x + 170}" y="${y + 67}" fill="#95a4b5" font-size="10">RAM ${ram.toFixed(1)}%</text>
             <rect x="${x + 218}" y="${y + 61}" width="82" height="6" rx="3" fill="#202b39"/>
-            <rect x="${x + 218}" y="${y + 61}" width="${82 * Math.min(1, ram / 100)}" height="6" rx="3" fill="#66c3d7"/>`;
+            <rect x="${x + 218}" y="${y + 61}" width="${82 * Math.min(1, ram / 100)}" height="6" rx="3" fill="#66c3d7"/>
+            <text x="${x + 18}" y="${y + 78}" fill="#95a4b5" font-size="10">${logicalCores} logical CPU cores</text>`;
 
-        group.workers.forEach((worker, workerIndex) => {
+        const orderedWorkers = [...group.workers].sort((first, second) =>
+          String(first.id || "").localeCompare(String(second.id || ""))
+        );
+        orderedWorkers.forEach((worker, workerIndex) => {
           const workerX = x + 14;
           const workerY = y + 82 + workerIndex * 58;
-          const workerCpu = Number(worker.metrics?.cpu_percent || 0);
-          const workerRam = Number(worker.metrics?.ram_percent || 0);
           const workerOnline = Boolean(worker.connected);
           const workerBusy = assigned.has(worker.id) || Number(worker.active_tasks || 0) > 0;
           const workerColor = !workerOnline
@@ -1157,15 +1200,9 @@
                 stroke="${selected ? "#64aef5" : workerColor}"
                 stroke-width="${selected ? 2 : 1}"/>
               <circle cx="${workerX + 14}" cy="${workerY + 16}" r="4" fill="${workerColor}"/>
-              <text x="${workerX + 25}" y="${workerY + 19}" fill="#edf3f8" font-size="11" font-weight="700">${escapeHtml(workerId)}</text>
-              <text x="${workerX + 92}" y="${workerY + 19}" fill="#95a4b5" font-size="9">${workerOnline ? "ONLINE" : "OFFLINE"}${workerBusy ? " · BUSY" : ""}</text>
-              <text x="${workerX + 14}" y="${workerY + 38}" fill="#95a4b5" font-size="9">CPU ${workerCpu.toFixed(1)}%</text>
-              <rect x="${workerX + 70}" y="${workerY + 32}" width="72" height="5" rx="3" fill="#202b39"/>
-              <rect x="${workerX + 70}" y="${workerY + 32}" width="${72 * Math.min(1, workerCpu / 100)}" height="5" rx="3" fill="#64aef5"/>
-              <text x="${workerX + 158}" y="${workerY + 38}" fill="#95a4b5" font-size="9">RAM ${workerRam.toFixed(1)}%</text>
-              <rect x="${workerX + 215}" y="${workerY + 32}" width="62" height="5" rx="3" fill="#202b39"/>
-              <rect x="${workerX + 215}" y="${workerY + 32}" width="${62 * Math.min(1, workerRam / 100)}" height="5" rx="3" fill="#66c3d7"/>
-              <title>${escapeHtml(worker.name || "Worker")} · ${workerId} · CPU ${workerCpu.toFixed(1)}% · RAM ${workerRam.toFixed(1)}% · ${worker.active_tasks || 0} active job(s)</title>
+              <text x="${workerX + 25}" y="${workerY + 19}" fill="#edf3f8" font-size="11" font-weight="700">Worker #${workerIndex + 1}</text>
+              <text x="${workerX + 112}" y="${workerY + 19}" fill="#95a4b5" font-size="9">${workerId} · ${workerOnline ? "ONLINE" : "OFFLINE"}${workerBusy ? " · BUSY" : ""}</text>
+              <title>${escapeHtml(worker.name || "Worker")} · Worker #${workerIndex + 1} · ${workerId} · ${workerOnline ? "online" : "offline"} · ${worker.active_tasks || 0} active job(s)</title>
             </g>`;
         });
         markup += `</g>`;
@@ -1258,20 +1295,30 @@
       document.querySelector("#workers").innerHTML = machineGroups.map((group, index) => {
         const machineName = group.name || `Machine ${index + 1}`;
         const machineOnline = group.workers.some(worker => worker.connected);
-        const workerCards = group.workers.map(worker => {
+        const orderedWorkers = [...group.workers].sort((first, second) =>
+          String(first.id || "").localeCompare(String(second.id || ""))
+        );
+        const workerNumbers = new Map(
+          orderedWorkers.map((worker, workerIndex) =>
+            [worker.id, workerIndex + 1]
+          )
+        );
+        const onlineWorkers = orderedWorkers.filter(worker => worker.connected);
+        const offlineCount = orderedWorkers.length - onlineWorkers.length;
+        const workerCards = onlineWorkers.map(worker => {
           const metrics = worker.metrics || {};
           const cpu = Number(metrics.cpu_percent || 0);
           const ram = Number(metrics.ram_percent || 0);
           const availableRam = Number(metrics.available_ram || 0);
-          const status = worker.connected ? "online" : "offline";
+          const workerNumber = workerNumbers.get(worker.id);
           return `
             <article class="worker">
               <div class="worker-head">
                 <div>
-                  <div class="worker-name">${escapeHtml(worker.name || "Worker")}</div>
-                  <div class="worker-id">${escapeHtml(worker.id)}</div>
+                  <div class="worker-name">Worker #${workerNumber} · ${escapeHtml(worker.name || "Worker")}</div>
+                  <div class="worker-id">${escapeHtml(worker.id ? worker.id.slice(0, 12) : "unknown")}</div>
                 </div>
-                <span class="status ${status}">${status}</span>
+                <span class="status online">online</span>
               </div>
               <div class="resource-row">
                 <div class="resource-label"><span>CPU utilization</span><strong>${cpu.toFixed(1)}%</strong></div>
@@ -1293,9 +1340,9 @@
           <section class="machine-section">
             <div class="machine-heading">
               <div><strong>Machine: ${escapeHtml(machineName)}</strong></div>
-              <div>${group.workers.length} worker instance(s) · ${machineOnline ? "Online" : "Offline"}${group.legacy ? " · Legacy / unverified" : ""}</div>
+              <div>${onlineWorkers.length} online · ${offlineCount} offline${group.legacy ? " · Legacy / unverified" : ""}</div>
             </div>
-            <div class="machine-workers">${workerCards}</div>
+            ${workerCards ? `<div class="machine-workers">${workerCards}</div>` : ""}
           </section>`;
       }).join("");
     }
@@ -1390,16 +1437,77 @@
         if (!response.ok) throw new Error(`Coordinator returned ${response.status}`);
         const state = await response.json();
         latestState = state;
-        const workers = state.workers || [];
+        const allWorkers = state.workers || [];
+        const workers = Array.isArray(state.connected_workers)
+          ? state.connected_workers
+          : allWorkers.filter(worker => worker.connected);
         const jobs = state.jobs || [];
         recordStateEvents(workers, jobs);
         recordHistory(workers);
-        renderTopology(workers, jobs);
-        renderJobAnalytics(jobs);
-        renderExecutionFlow(jobs);
-        renderSummary(workers, jobs);
-        renderWorkers(workers);
-        renderJobs(jobs);
+        const summarySignature = stateSignature({
+          workers: allWorkers.map(worker => ({
+            id: worker.id,
+            connected: worker.connected,
+            metrics: worker.metrics
+          })),
+          jobs: jobs.map(job => ({
+            id: job.id,
+            status: job.status
+          }))
+        });
+        if (summarySignature !== renderSignatures.summary) {
+          renderSignatures.summary = summarySignature;
+          renderSummary(allWorkers, jobs);
+        }
+        const workersSignature = stateSignature(allWorkers);
+        if (workersSignature !== renderSignatures.workers) {
+          renderSignatures.workers = workersSignature;
+          renderWorkers(allWorkers);
+        }
+        const jobsSignature = stateSignature(jobs);
+        if (jobsSignature !== renderSignatures.jobs) {
+          renderSignatures.jobs = jobsSignature;
+          renderJobs(jobs);
+        }
+        const topologySignature = stateSignature({
+          workers,
+          assignments: jobs.map(job => ({
+            id: job.id,
+            status: job.status,
+            tasks: getJobTasks(job).map(task => ({
+              id: task.id,
+              status: task.status,
+              worker: task.worker
+            }))
+          }))
+        });
+        if (topologySignature !== renderSignatures.topology) {
+          renderSignatures.topology = topologySignature;
+          renderTopology(workers, jobs);
+        }
+        const analyticsSignature = stateSignature(
+          jobs.map(job => ({ id: job.id, status: job.status }))
+        );
+        if (analyticsSignature !== renderSignatures.analytics) {
+          renderSignatures.analytics = analyticsSignature;
+          renderJobAnalytics(jobs);
+        }
+        const flowSignature = stateSignature(
+          jobs[0] ? {
+            id: jobs[0].id,
+            name: jobs[0].name,
+            status: jobs[0].status,
+            tasks: getJobTasks(jobs[0]).map(task => ({
+              id: task.id,
+              status: task.status,
+              process: task.process
+            }))
+          } : null
+        );
+        if (flowSignature !== renderSignatures.flow) {
+          renderSignatures.flow = flowSignature;
+          renderExecutionFlow(jobs);
+        }
         document.querySelector("#update-status").textContent = "Live";
         document.querySelector("#last-updated").textContent =
           `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
@@ -1459,7 +1567,7 @@
     });
 
     loadState();
-    setInterval(loadState, 1500);
+    pollTimer = setInterval(loadState, 1500);
 
     const topologySvg = document.querySelector("#topology");
     function selectTopologyWorker(workerId) {
@@ -1496,7 +1604,14 @@
     window.addEventListener("resize", () => {
       if (!latestState) return;
       const workers = latestState.workers || [];
-      recordHistory(workers);
+      renderAggregateChart("aggregate-cpu-chart", metricHistory.cpu, "#64aef5");
+      renderAggregateChart("aggregate-ram-chart", metricHistory.ram, "#66c3d7");
+      renderWorkerCharts(workers);
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (pollTimer !== null) clearInterval(pollTimer);
+      pollTimer = null;
     });
   </script>
 </body>
