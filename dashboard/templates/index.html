@@ -139,6 +139,28 @@
       gap: 1px;
       background: var(--border);
     }
+    .machine-section {
+      grid-column: 1 / -1;
+      background: var(--panel);
+    }
+    .machine-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #101620;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .machine-heading strong { color: var(--text); font-size: 13px; }
+    .machine-workers {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--border);
+    }
     .worker {
       min-width: 0;
       padding: 16px;
@@ -340,9 +362,155 @@
       font-size: 12px;
     }
     .error-banner.visible { display: block; }
+    .topology-wrap {
+      min-height: 260px;
+      position: relative;
+      background:
+        linear-gradient(rgba(38,50,65,.18) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(38,50,65,.18) 1px, transparent 1px);
+      background-size: 24px 24px;
+      overflow: hidden;
+    }
+    #topology { display: block; width: 100%; height: auto; min-height: 260px; }
+    .topology-legend {
+      display: flex;
+      gap: 14px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .legend-dot.online { background: var(--green); }
+    .legend-dot.offline { background: var(--red); }
+    .legend-dot.busy { background: var(--blue); }
+    .visual-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .chart-box { min-width: 0; padding: 14px 16px; }
+    .chart-box + .chart-box { border-left: 1px solid var(--border); }
+    .chart-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .chart-heading strong { color: var(--text); font-size: 16px; }
+    canvas.chart { width: 100%; height: 118px; display: block; }
+    .worker-charts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--border);
+    }
+    .worker-chart { min-width: 0; padding: 12px; background: var(--panel); }
+    .worker-chart canvas { width: 100%; height: 90px; display: block; }
+    .worker-chart-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 7px;
+    }
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      align-items: center;
+      gap: 14px;
+      padding: 16px;
+    }
+    .donut {
+      width: 132px;
+      height: 132px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(var(--green) 0 25%, var(--blue) 25% 50%, var(--amber) 50% 75%, var(--red) 75%);
+      position: relative;
+    }
+    .donut::after {
+      content: "";
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: var(--panel);
+      position: absolute;
+    }
+    .donut-center {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .donut-center strong { display: block; color: var(--text); font-size: 22px; line-height: 1.1; }
+    .job-bars { display: grid; gap: 9px; }
+    .job-bar-row {
+      display: grid;
+      grid-template-columns: 66px minmax(50px, 1fr) 24px;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .mini-bar { height: 7px; border-radius: 999px; background: #202b39; overflow: hidden; }
+    .mini-bar div { height: 100%; border-radius: inherit; transition: width .25s ease; }
+    .execution-flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(58px, 1fr));
+      align-items: center;
+      gap: 6px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+    .flow-step { min-width: 58px; text-align: center; color: var(--muted); font-size: 10px; }
+    .flow-node {
+      width: 30px;
+      height: 30px;
+      margin: 0 auto 7px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-light);
+      border-radius: 50%;
+      background: #0d141e;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .flow-step.active .flow-node,
+    .flow-step.complete .flow-node {
+      border-color: #5794c4;
+      color: var(--text);
+      background: #173451;
+    }
+    .flow-step.complete .flow-node { border-color: rgba(83,215,161,.6); background: rgba(83,215,161,.12); }
+    .flow-step.active { color: var(--blue); }
+    .flow-step.complete { color: var(--green); }
+    .timeline { max-height: 240px; overflow-y: auto; }
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 56px 8px minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+      padding: 9px 16px;
+      border-bottom: 1px solid rgba(38,50,65,.55);
+      font-size: 11px;
+    }
+    .timeline-item:last-child { border-bottom: 0; }
+    .timeline-time { color: var(--muted); font-family: Consolas, monospace; }
+    .timeline-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--blue); }
+    .timeline-dot.completed { background: var(--green); }
+    .timeline-dot.failed, .timeline-dot.disconnected { background: var(--red); }
+    .timeline-dot.queued { background: var(--amber); }
+    .timeline-text { color: var(--text); overflow-wrap: anywhere; }
     @media (max-width: 1120px) {
       .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .layout { grid-template-columns: minmax(0, 1fr) 300px; }
+      .visual-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 820px) {
       .topbar { height: 64px; padding: 0 18px; }
@@ -388,6 +556,73 @@
       <div class="error-banner" id="error-banner"></div>
       <section class="metrics" id="summary">
         <div class="metric"><div class="metric-label">Loading metrics</div><div class="metric-value">—</div></div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <div class="panel-header">
+          <h2 class="panel-title">Live cluster topology</h2>
+          <div class="topology-legend">
+            <span class="legend-item"><span class="legend-dot online"></span>Online</span>
+            <span class="legend-item"><span class="legend-dot offline"></span>Offline</span>
+            <span class="legend-item"><span class="legend-dot busy"></span>Active job</span>
+          </div>
+        </div>
+        <div class="topology-wrap" id="topology-wrap">
+          <svg id="topology" viewBox="0 0 1000 260" role="img" aria-label="Coordinator and worker cluster topology"></svg>
+        </div>
+      </section>
+
+      <section class="visual-grid" style="margin-bottom:16px">
+        <div class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Cluster utilization</h2>
+            <span class="panel-meta">Browser-session history</span>
+          </div>
+          <div class="chart-grid">
+            <div class="chart-box">
+              <div class="chart-heading"><span>CPU utilization</span><strong id="aggregate-cpu">—</strong></div>
+              <canvas class="chart" id="aggregate-cpu-chart"></canvas>
+            </div>
+            <div class="chart-box">
+              <div class="chart-heading"><span>RAM utilization</span><strong id="aggregate-ram">—</strong></div>
+              <canvas class="chart" id="aggregate-ram-chart"></canvas>
+            </div>
+          </div>
+          <div class="worker-charts" id="worker-charts"></div>
+        </div>
+
+        <div class="column">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Job analytics</h2>
+              <span class="panel-meta" id="analytics-meta">Current state</span>
+            </div>
+            <div class="analytics-grid">
+              <div class="donut" id="job-donut">
+                <div class="donut-center"><strong id="job-total">0</strong>jobs</div>
+              </div>
+              <div class="job-bars" id="job-bars"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Activity timeline</h2>
+              <span class="panel-meta">Actual state changes</span>
+            </div>
+            <div class="timeline" id="activity-timeline">
+              <div class="empty">Waiting for cluster activity.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <div class="panel-header">
+          <h2 class="panel-title">Job execution flow</h2>
+          <span class="panel-meta" id="flow-job">Latest job</span>
+        </div>
+        <div class="execution-flow" id="execution-flow"></div>
       </section>
 
       <div class="layout">
@@ -443,6 +678,17 @@
   <script>
     const stateUrl = "/api/state";
     let latestState = null;
+    let selectedTopologyWorkerId = null;
+    const metricHistory = {
+      cpu: [],
+      ram: [],
+      workers: {}
+    };
+    const previousSnapshot = {
+      workers: new Map(),
+      jobs: new Map()
+    };
+    const activityEvents = [];
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -487,9 +733,233 @@
       return Object.values(job.tasks || {});
     }
 
+    function validMachineId(value) {
+      return typeof value === "string"
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+    }
+
+    function groupWorkersByMachine(workers) {
+      const groups = new Map();
+      for (const worker of workers) {
+        const machineId = validMachineId(worker.machine_id)
+          ? worker.machine_id.toLowerCase()
+          : null;
+        const key = machineId
+          ? `machine:${machineId}`
+          : `legacy:${worker.id || worker.name || Math.random()}`;
+
+        if (!groups.has(key)) {
+          groups.set(key, {
+            machineId,
+            legacy: !machineId,
+            name: worker.hostname || worker.name || "Unverified machine",
+            workers: []
+          });
+        }
+        groups.get(key).workers.push(worker);
+      }
+      return [...groups.values()];
+    }
+
+    function addActivity(type, text) {
+      activityEvents.unshift({
+        time: new Date(),
+        type,
+        text
+      });
+      if (activityEvents.length > 30) activityEvents.pop();
+      renderTimeline();
+    }
+
+    function renderTimeline() {
+      const timeline = document.querySelector("#activity-timeline");
+      if (!activityEvents.length) {
+        timeline.innerHTML = '<div class="empty">Waiting for cluster activity.</div>';
+        return;
+      }
+      timeline.innerHTML = activityEvents.map(event => `
+        <div class="timeline-item">
+          <div class="timeline-time">${event.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+          <div class="timeline-dot ${escapeHtml(event.type)}"></div>
+          <div class="timeline-text">${escapeHtml(event.text)}</div>
+        </div>`).join("");
+    }
+
+    function recordStateEvents(workers, jobs) {
+      const workerMap = new Map(workers.map(worker => [worker.id, worker]));
+
+      for (const worker of workers) {
+        const previous = previousSnapshot.workers.get(worker.id);
+        if (!previous) {
+          addActivity(worker.connected ? "online" : "offline",
+            `${worker.name || "Worker"} registered (${worker.connected ? "online" : "offline"})`);
+        } else if (previous.connected && !worker.connected) {
+          addActivity("disconnected", `${worker.name || "Worker"} disconnected`);
+        } else if (!previous.connected && worker.connected) {
+          addActivity("online", `${worker.name || "Worker"} connected`);
+        }
+        previousSnapshot.workers.set(worker.id, worker);
+      }
+
+      for (const previousId of previousSnapshot.workers.keys()) {
+        if (!workerMap.has(previousId)) {
+          const previous = previousSnapshot.workers.get(previousId);
+          addActivity("disconnected", `${previous.name || "Worker"} removed from cluster state`);
+          previousSnapshot.workers.delete(previousId);
+        }
+      }
+
+      for (const job of jobs) {
+        const previous = previousSnapshot.jobs.get(job.id);
+        if (!previous) {
+          addActivity("queued", `Job submitted: ${job.name || job.id}`);
+        } else {
+          for (const task of getJobTasks(job)) {
+            const oldTask = getJobTasks(previous).find(item => item.id === task.id);
+            if (!oldTask) continue;
+            if (oldTask.status !== "assigned" && task.status === "assigned") {
+              addActivity("running", `Task ${task.id.slice(0, 8)} assigned to ${task.worker || "worker"}`);
+            }
+            if (oldTask.status !== "running" && task.status === "running") {
+              addActivity("running", `Process started for task ${task.id.slice(0, 8)}`);
+            }
+            if (oldTask.status !== "completed" && task.status === "completed") {
+              addActivity("completed", `Task ${task.id.slice(0, 8)} completed`);
+            }
+            if (oldTask.status !== "failed" && task.status === "failed") {
+              addActivity(task.process?.timed_out ? "failed" : "failed",
+                `Task ${task.id.slice(0, 8)} ${task.process?.timed_out ? "timed out" : "failed"}`);
+            }
+          }
+        }
+        previousSnapshot.jobs.set(job.id, structuredClone(job));
+      }
+    }
+
+    function recordHistory(workers) {
+      const machineGroups = groupWorkersByMachine(workers);
+      const representativeWorkers = machineGroups
+        .map(group => group.workers.find(worker => worker.connected) || group.workers[0])
+        .filter(Boolean);
+      const connected = representativeWorkers.filter(worker => worker.connected);
+      const aggregateCpu = connected.length
+        ? connected.reduce((sum, worker) => sum + Number(worker.metrics?.cpu_percent || 0), 0) / connected.length
+        : 0;
+      const aggregateRam = connected.length
+        ? connected.reduce((sum, worker) => sum + Number(worker.metrics?.ram_percent || 0), 0) / connected.length
+        : 0;
+      metricHistory.cpu.push(aggregateCpu);
+      metricHistory.ram.push(aggregateRam);
+      if (metricHistory.cpu.length > 40) metricHistory.cpu.shift();
+      if (metricHistory.ram.length > 40) metricHistory.ram.shift();
+
+      for (const worker of workers) {
+        if (!metricHistory.workers[worker.id]) {
+          metricHistory.workers[worker.id] = { cpu: [], ram: [], name: worker.name };
+        }
+        const history = metricHistory.workers[worker.id];
+        history.name = worker.name;
+        history.cpu.push(Number(worker.metrics?.cpu_percent || 0));
+        history.ram.push(Number(worker.metrics?.ram_percent || 0));
+        if (history.cpu.length > 30) history.cpu.shift();
+        if (history.ram.length > 30) history.ram.shift();
+      }
+      document.querySelector("#aggregate-cpu").textContent = `${aggregateCpu.toFixed(1)}%`;
+      document.querySelector("#aggregate-ram").textContent = `${aggregateRam.toFixed(1)}%`;
+      renderAggregateChart("aggregate-cpu-chart", metricHistory.cpu, "#64aef5");
+      renderAggregateChart("aggregate-ram-chart", metricHistory.ram, "#66c3d7");
+      renderWorkerCharts(workers);
+    }
+
+    function prepareCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(rect.width * ratio));
+      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      const context = canvas.getContext("2d");
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { context, width: rect.width, height: rect.height };
+    }
+
+    function renderAggregateChart(canvasId, values, color) {
+      const canvas = document.querySelector(`#${canvasId}`);
+      if (!canvas) return;
+      const { context, width, height } = prepareCanvas(canvas);
+      context.clearRect(0, 0, width, height);
+      context.strokeStyle = "rgba(148,164,181,.12)";
+      context.lineWidth = 1;
+      for (let step = 0; step <= 4; step++) {
+        const y = 8 + (height - 16) * step / 4;
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(width, y);
+        context.stroke();
+      }
+      if (values.length < 2) return;
+      context.strokeStyle = color;
+      context.lineWidth = 2;
+      context.beginPath();
+      values.forEach((value, index) => {
+        const x = width * index / (values.length - 1);
+        const y = height - 8 - Math.min(100, value) / 100 * (height - 16);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.stroke();
+    }
+
+    function renderWorkerCharts(workers) {
+      const container = document.querySelector("#worker-charts");
+      if (!workers.length) {
+        container.innerHTML = "";
+        return;
+      }
+      container.innerHTML = workers.map(worker => {
+        const history = metricHistory.workers[worker.id] || { cpu: [], ram: [] };
+        const cpu = history.cpu.at(-1) ?? Number(worker.metrics?.cpu_percent || 0);
+        const ram = history.ram.at(-1) ?? Number(worker.metrics?.ram_percent || 0);
+        return `
+          <div class="worker-chart">
+            <div class="worker-chart-title">
+              <span>${escapeHtml(worker.name || worker.id.slice(0, 8))}</span>
+              <span>CPU ${cpu.toFixed(0)}% · RAM ${ram.toFixed(0)}%</span>
+            </div>
+            <canvas data-worker-cpu="${escapeHtml(worker.id)}"></canvas>
+          </div>`;
+      }).join("");
+
+      for (const worker of workers) {
+        const history = metricHistory.workers[worker.id];
+        const canvas = container.querySelector(`[data-worker-cpu="${CSS.escape(worker.id)}"]`);
+        if (!canvas || !history) continue;
+        const { context, width, height } = prepareCanvas(canvas);
+        context.clearRect(0, 0, width, height);
+        context.strokeStyle = "rgba(148,164,181,.10)";
+        context.beginPath();
+        context.moveTo(0, height / 2);
+        context.lineTo(width, height / 2);
+        context.stroke();
+        [["cpu", "#64aef5"], ["ram", "#66c3d7"]].forEach(([key, color]) => {
+          const values = history[key];
+          if (values.length < 2) return;
+          context.strokeStyle = color;
+          context.lineWidth = 1.5;
+          context.beginPath();
+          values.forEach((value, index) => {
+            const x = width * index / (values.length - 1);
+            const y = height - 5 - Math.min(100, value) / 100 * (height - 10);
+            if (index === 0) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          });
+          context.stroke();
+        });
+      }
+    }
+
     function renderSummary(workers, jobs) {
       const online = workers.filter(worker => worker.connected).length;
       const offline = workers.length - online;
+      const machineGroups = groupWorkersByMachine(workers);
       const active = jobs.filter(job => ["running", "assigned"].includes(job.status)).length;
       const queued = jobs.filter(job => job.status === "queued").length;
       const completed = jobs.filter(job => job.status === "completed").length;
@@ -497,20 +967,20 @@
         job.status === "failed" ||
         getJobTasks(job).some(task => task.status === "failed")
       ).length;
-      const availableRam = workers.reduce(
-        (total, worker) => total + (worker.metrics?.available_ram || 0),
-        0
-      );
-      const logicalCores = workers.reduce(
-        (total, worker) => total + (worker.metrics?.logical_cores || 0),
-        0
-      );
+      const availableRam = machineGroups.reduce((total, group) => {
+        const representative = group.workers[0];
+        return total + (representative.metrics?.available_ram || 0);
+      }, 0);
+      const logicalCores = machineGroups.reduce((total, group) => {
+        const representative = group.workers[0];
+        return total + (representative.metrics?.logical_cores || 0);
+      }, 0);
 
       document.querySelector("#summary").innerHTML = `
         <div class="metric ok">
           <div class="metric-label">Workers online</div>
           <div class="metric-value">${online}</div>
-          <div class="metric-detail">${workers.length} registered · ${offline} offline</div>
+          <div class="metric-detail">${workers.length} worker instances · ${machineGroups.length} machines · ${offline} offline</div>
         </div>
         <div class="metric">
           <div class="metric-label">Logical CPU cores</div>
@@ -539,6 +1009,240 @@
         </div>`;
     }
 
+    function renderTopology(workers, jobs) {
+      const svg = document.querySelector("#topology");
+      const assigned = new Set(
+        jobs.flatMap(job => getJobTasks(job)
+          .filter(task => ["assigned", "running"].includes(task.status))
+          .map(task => task.worker))
+      );
+      const grouped = groupWorkersByMachine(workers);
+      const verified = grouped.filter(group => !group.legacy);
+      const legacyWorkers = grouped
+        .filter(group => group.legacy)
+        .flatMap(group => group.workers);
+      const groups = [...verified];
+      if (legacyWorkers.length) {
+        groups.push({
+          machineId: null,
+          legacy: true,
+          name: "Legacy / Unverified",
+          workers: legacyWorkers
+        });
+      }
+
+      const width = 1000;
+      const leftWidth = 230;
+      const machineWidth = 320;
+      const gapX = 28;
+      const top = 34;
+      const gapY = 24;
+      const machineStartX = leftWidth + 46;
+      const columns = groups.length > 2 ? 2 : 1;
+      const machineHeights = groups.map(group =>
+        82 + group.workers.length * 58 + 18
+      );
+      let height = 260;
+      if (groups.length) {
+        for (let column = 0; column < columns; column++) {
+          const columnGroups = groups.filter((group, index) => index % columns === column);
+          const columnHeight = columnGroups.reduce((total, group, index) =>
+            total + machineHeights[groups.indexOf(group)] + (index ? gapY : 0),
+          0);
+          height = Math.max(height, top + columnHeight + 34);
+        }
+      }
+
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      let markup = "";
+      markup += `
+        <circle cx="130" cy="${height / 2}" r="58" fill="#132235" stroke="#64aef5" stroke-width="2"/>
+        <circle cx="130" cy="${height / 2}" r="46" fill="none" stroke="#2d526d" stroke-width="1"/>
+        <text x="130" y="${height / 2 - 7}" text-anchor="middle" fill="#edf3f8" font-size="15" font-weight="700">Coordinator</text>
+        <text x="130" y="${height / 2 + 13}" text-anchor="middle" fill="#95a4b5" font-size="11">Scheduler + SQLite</text>`;
+
+      if (!groups.length) {
+        markup += `
+          <text x="620" y="${height / 2 - 8}" text-anchor="middle" fill="#95a4b5" font-size="13">No workers registered</text>
+          <text x="620" y="${height / 2 + 14}" text-anchor="middle" fill="#95a4b5" font-size="11">Start a worker to add a live machine</text>`;
+        svg.innerHTML = markup;
+        return;
+      }
+
+      groups.forEach((group, index) => {
+        const column = columns === 1 ? 0 : index % 2;
+        const x = machineStartX + column * (machineWidth + gapX);
+        let y = top;
+        if (columns === 1) {
+          y = top + groups.slice(0, index).reduce((total, item) =>
+            total + (82 + item.workers.length * 58 + 18) + gapY,
+          0);
+        } else {
+          y = top + groups
+            .filter((item, itemIndex) => itemIndex % 2 === column && itemIndex < index)
+            .reduce((total, item) =>
+              total + (82 + item.workers.length * 58 + 18) + gapY,
+            0);
+        }
+
+        const activeMetrics = group.workers.filter(worker => worker.connected);
+        const metricWorkers = activeMetrics.length ? activeMetrics : group.workers;
+        const cpu = metricWorkers.length
+          ? metricWorkers.reduce((total, worker) =>
+              total + Number(worker.metrics?.cpu_percent || 0), 0) / metricWorkers.length
+          : 0;
+        const ram = metricWorkers.length
+          ? metricWorkers.reduce((total, worker) =>
+              total + Number(worker.metrics?.ram_percent || 0), 0) / metricWorkers.length
+          : 0;
+        const online = group.workers.some(worker => worker.connected);
+        const busy = group.workers.some(worker =>
+          assigned.has(worker.id) || Number(worker.active_tasks || 0) > 0
+        );
+        const machineColor = online
+          ? (busy ? "#e8b86b" : "#53d7a1")
+          : "#ef7d87";
+        const machineName = group.legacy
+          ? "Legacy / Unverified"
+          : (group.name || "Unverified machine");
+        const machineId = group.legacy
+          ? "No verified identity"
+          : (group.machineId ? group.machineId.slice(0, 8) : "Unverified");
+        const machineHeight = machineHeights[index];
+        const activeJobs = group.workers.reduce(
+          (total, worker) => total + Number(worker.active_tasks || 0),
+          0
+        );
+
+        markup += `
+          <line x1="${188}" y1="${height / 2}" x2="${x - 12}" y2="${y + machineHeight / 2}"
+            stroke="${busy ? "#64aef5" : (online ? "#49677f" : "#7b4650")}"
+            stroke-width="${busy ? 3 : 2}"
+            ${busy ? 'stroke-dasharray="7 8" class="activity-link"' : ""}/>`;
+
+        markup += `
+          <g class="machine-node ${group.legacy ? "legacy-machine" : ""}">
+            <title>${escapeHtml(machineName)} — ${online ? "online" : "offline"} — CPU ${cpu.toFixed(1)}%, RAM ${ram.toFixed(1)}%, ${group.workers.length} worker instance(s)</title>
+            <rect x="${x}" y="${y}" width="${machineWidth}" height="${machineHeight}" rx="14"
+              fill="#111823" stroke="${machineColor}" stroke-width="2"/>
+            <circle cx="${x + 18}" cy="${y + 22}" r="6" fill="${machineColor}"/>
+            <text x="${x + 32}" y="${y + 25}" fill="#edf3f8" font-size="14" font-weight="700">${escapeHtml(machineName).slice(0, 26)}</text>
+            <text x="${x + 18}" y="${y + 46}" fill="#95a4b5" font-size="10">${escapeHtml(machineId)} · ${group.workers.length} worker(s)</text>
+            <text x="${x + 170}" y="${y + 46}" fill="#95a4b5" font-size="10">${online ? "ONLINE" : "OFFLINE"} · ${activeJobs} active</text>
+            <text x="${x + 18}" y="${y + 67}" fill="#95a4b5" font-size="10">CPU ${cpu.toFixed(1)}%</text>
+            <rect x="${x + 70}" y="${y + 61}" width="86" height="6" rx="3" fill="#202b39"/>
+            <rect x="${x + 70}" y="${y + 61}" width="${86 * Math.min(1, cpu / 100)}" height="6" rx="3" fill="#64aef5"/>
+            <text x="${x + 170}" y="${y + 67}" fill="#95a4b5" font-size="10">RAM ${ram.toFixed(1)}%</text>
+            <rect x="${x + 218}" y="${y + 61}" width="82" height="6" rx="3" fill="#202b39"/>
+            <rect x="${x + 218}" y="${y + 61}" width="${82 * Math.min(1, ram / 100)}" height="6" rx="3" fill="#66c3d7"/>`;
+
+        group.workers.forEach((worker, workerIndex) => {
+          const workerX = x + 14;
+          const workerY = y + 82 + workerIndex * 58;
+          const workerCpu = Number(worker.metrics?.cpu_percent || 0);
+          const workerRam = Number(worker.metrics?.ram_percent || 0);
+          const workerOnline = Boolean(worker.connected);
+          const workerBusy = assigned.has(worker.id) || Number(worker.active_tasks || 0) > 0;
+          const workerColor = !workerOnline
+            ? "#ef7d87"
+            : (workerBusy ? "#e8b86b" : "#53d7a1");
+          const workerId = worker.id ? worker.id.slice(0, 8) : "unknown";
+          const selected = selectedTopologyWorkerId === worker.id;
+          markup += `
+            <g class="topology-worker" data-worker-id="${escapeHtml(worker.id || "")}"
+              role="button" tabindex="0" style="cursor:pointer">
+              <rect x="${workerX}" y="${workerY}" width="292" height="48" rx="8"
+                fill="${selected ? "#1a2b3d" : "#151d29"}"
+                stroke="${selected ? "#64aef5" : workerColor}"
+                stroke-width="${selected ? 2 : 1}"/>
+              <circle cx="${workerX + 14}" cy="${workerY + 16}" r="4" fill="${workerColor}"/>
+              <text x="${workerX + 25}" y="${workerY + 19}" fill="#edf3f8" font-size="11" font-weight="700">${escapeHtml(workerId)}</text>
+              <text x="${workerX + 92}" y="${workerY + 19}" fill="#95a4b5" font-size="9">${workerOnline ? "ONLINE" : "OFFLINE"}${workerBusy ? " · BUSY" : ""}</text>
+              <text x="${workerX + 14}" y="${workerY + 38}" fill="#95a4b5" font-size="9">CPU ${workerCpu.toFixed(1)}%</text>
+              <rect x="${workerX + 70}" y="${workerY + 32}" width="72" height="5" rx="3" fill="#202b39"/>
+              <rect x="${workerX + 70}" y="${workerY + 32}" width="${72 * Math.min(1, workerCpu / 100)}" height="5" rx="3" fill="#64aef5"/>
+              <text x="${workerX + 158}" y="${workerY + 38}" fill="#95a4b5" font-size="9">RAM ${workerRam.toFixed(1)}%</text>
+              <rect x="${workerX + 215}" y="${workerY + 32}" width="62" height="5" rx="3" fill="#202b39"/>
+              <rect x="${workerX + 215}" y="${workerY + 32}" width="${62 * Math.min(1, workerRam / 100)}" height="5" rx="3" fill="#66c3d7"/>
+              <title>${escapeHtml(worker.name || "Worker")} · ${workerId} · CPU ${workerCpu.toFixed(1)}% · RAM ${workerRam.toFixed(1)}% · ${worker.active_tasks || 0} active job(s)</title>
+            </g>`;
+        });
+        markup += `</g>`;
+      });
+
+      svg.innerHTML = markup + `
+        <style>
+          .activity-link { animation: dataFlow 1.2s linear infinite; }
+          .topology-worker rect { transition: stroke .18s ease, fill .18s ease; }
+          @keyframes dataFlow { to { stroke-dashoffset: -30; } }
+          @media (prefers-reduced-motion: reduce) { .activity-link { animation: none; } }
+        </style>`;
+    }
+
+    function renderJobAnalytics(jobs) {
+      const queued = jobs.filter(job => job.status === "queued").length;
+      const running = jobs.filter(job => ["running", "assigned"].includes(job.status)).length;
+      const completed = jobs.filter(job => job.status === "completed").length;
+      const failed = jobs.filter(job => job.status === "failed").length;
+      const total = jobs.length;
+      const values = [
+        { label: "Completed", value: completed, color: "#53d7a1" },
+        { label: "Running", value: running, color: "#64aef5" },
+        { label: "Queued", value: queued, color: "#e8b86b" },
+        { label: "Failed", value: failed, color: "#ef7d87" }
+      ];
+
+      let start = 0;
+      const segments = values.map(item => {
+        const degrees = total ? item.value / total * 360 : 0;
+        const segment = `${item.color} ${start}deg ${start + degrees}deg`;
+        start += degrees;
+        return segment;
+      });
+      document.querySelector("#job-donut").style.background =
+        total ? `conic-gradient(${segments.join(",")})` : "#202b39";
+      document.querySelector("#job-total").textContent = total;
+      document.querySelector("#analytics-meta").textContent =
+        `${completed} completed · ${failed} failed`;
+      document.querySelector("#job-bars").innerHTML = values.map(item => `
+        <div class="job-bar-row">
+          <span>${item.label}</span>
+          <div class="mini-bar"><div style="width:${total ? item.value / total * 100 : 0}%;background:${item.color}"></div></div>
+          <strong>${item.value}</strong>
+        </div>`).join("");
+    }
+
+    function renderExecutionFlow(jobs) {
+      const job = jobs[0] || null;
+      const label = document.querySelector("#flow-job");
+      const flow = document.querySelector("#execution-flow");
+      if (!job) {
+        label.textContent = "No active job";
+        flow.innerHTML = ["Submitted", "Queue", "Scheduler", "Worker", "Process", "Result"]
+          .map((name, index) => `<div class="flow-step"><div class="flow-node">${index + 1}</div>${name}</div>`).join("");
+        return;
+      }
+
+      const tasks = getJobTasks(job);
+      const hasAssigned = tasks.some(task => task.status === "assigned" || task.status === "running");
+      const hasRunning = tasks.some(task => task.status === "running" || Boolean(task.process));
+      const hasResult = tasks.some(task => task.status === "completed");
+      let stage = 0;
+      if (job.status === "queued") stage = 1;
+      if (job.status === "running" || hasAssigned) stage = 2;
+      if (hasRunning) stage = 4;
+      if (job.status === "completed" || hasResult) stage = 5;
+      if (job.status === "failed") stage = 5;
+
+      const names = ["Submitted", "Queue", "Scheduler", "Worker", "Process", "Result"];
+      label.textContent = `${job.name || job.id.slice(0, 8)} · ${job.status}`;
+      flow.innerHTML = names.map((name, index) => {
+        const state = index < stage ? "complete" : (index === stage ? "active" : "");
+        return `<div class="flow-step ${state}"><div class="flow-node">${index + 1}</div>${name}</div>`;
+      }).join("");
+    }
+
     function renderWorkers(workers) {
       const online = workers.filter(worker => worker.connected).length;
       document.querySelector("#worker-meta").textContent =
@@ -550,35 +1254,49 @@
         return;
       }
 
-      document.querySelector("#workers").innerHTML = workers.map(worker => {
-        const metrics = worker.metrics || {};
-        const cpu = Number(metrics.cpu_percent || 0);
-        const ram = Number(metrics.ram_percent || 0);
-        const availableRam = Number(metrics.available_ram || 0);
-        const status = worker.connected ? "online" : "offline";
-        return `
-          <article class="worker">
-            <div class="worker-head">
-              <div>
-                <div class="worker-name">${escapeHtml(worker.name || "Worker")}</div>
-                <div class="worker-id">${escapeHtml(worker.id)}</div>
+      const machineGroups = groupWorkersByMachine(workers);
+      document.querySelector("#workers").innerHTML = machineGroups.map((group, index) => {
+        const machineName = group.name || `Machine ${index + 1}`;
+        const machineOnline = group.workers.some(worker => worker.connected);
+        const workerCards = group.workers.map(worker => {
+          const metrics = worker.metrics || {};
+          const cpu = Number(metrics.cpu_percent || 0);
+          const ram = Number(metrics.ram_percent || 0);
+          const availableRam = Number(metrics.available_ram || 0);
+          const status = worker.connected ? "online" : "offline";
+          return `
+            <article class="worker">
+              <div class="worker-head">
+                <div>
+                  <div class="worker-name">${escapeHtml(worker.name || "Worker")}</div>
+                  <div class="worker-id">${escapeHtml(worker.id)}</div>
+                </div>
+                <span class="status ${status}">${status}</span>
               </div>
-              <span class="status ${status}">${status}</span>
+              <div class="resource-row">
+                <div class="resource-label"><span>CPU utilization</span><strong>${cpu.toFixed(1)}%</strong></div>
+                <div class="bar"><div class="bar-fill" style="width:${Math.min(100, cpu)}%"></div></div>
+              </div>
+              <div class="resource-row">
+                <div class="resource-label"><span>Memory utilization</span><strong>${ram.toFixed(1)}%</strong></div>
+                <div class="bar"><div class="bar-fill ram" style="width:${Math.min(100, ram)}%"></div></div>
+              </div>
+              <div class="worker-footer">
+                <div>Available memory<strong>${formatBytes(availableRam)}</strong></div>
+                <div>Logical cores<strong>${metrics.logical_cores || 0}</strong></div>
+                <div>Active jobs<strong>${worker.active_tasks || 0}</strong></div>
+              </div>
+            </article>`;
+        }).join("");
+
+        return `
+          <section class="machine-section">
+            <div class="machine-heading">
+              <div><strong>Machine: ${escapeHtml(machineName)}</strong></div>
+              <div>${group.workers.length} worker instance(s) · ${machineOnline ? "Online" : "Offline"}${group.legacy ? " · Legacy / unverified" : ""}</div>
             </div>
-            <div class="resource-row">
-              <div class="resource-label"><span>CPU utilization</span><strong>${cpu.toFixed(1)}%</strong></div>
-              <div class="bar"><div class="bar-fill" style="width:${Math.min(100, cpu)}%"></div></div>
-            </div>
-            <div class="resource-row">
-              <div class="resource-label"><span>Memory utilization</span><strong>${ram.toFixed(1)}%</strong></div>
-              <div class="bar"><div class="bar-fill ram" style="width:${Math.min(100, ram)}%"></div></div>
-            </div>
-            <div class="worker-footer">
-              <div>Available memory<strong>${formatBytes(availableRam)}</strong></div>
-              <div>Logical cores<strong>${metrics.logical_cores || 0}</strong></div>
-              <div>Active jobs<strong>${worker.active_tasks || 0}</strong></div>
-            </div>
-          </article>`;
+            <div class="machine-workers">${workerCards}</div>
+          </section>`;
       }).join("");
     }
 
@@ -674,6 +1392,11 @@
         latestState = state;
         const workers = state.workers || [];
         const jobs = state.jobs || [];
+        recordStateEvents(workers, jobs);
+        recordHistory(workers);
+        renderTopology(workers, jobs);
+        renderJobAnalytics(jobs);
+        renderExecutionFlow(jobs);
         renderSummary(workers, jobs);
         renderWorkers(workers);
         renderJobs(jobs);
@@ -737,6 +1460,44 @@
 
     loadState();
     setInterval(loadState, 1500);
+
+    const topologySvg = document.querySelector("#topology");
+    function selectTopologyWorker(workerId) {
+      selectedTopologyWorkerId =
+        selectedTopologyWorkerId === workerId ? null : workerId;
+      if (latestState) {
+        renderTopology(latestState.workers || [], latestState.jobs || []);
+      }
+
+      const worker = latestState?.workers?.find(item => item.id === workerId);
+      const legend = document.querySelector(".topology-legend");
+      if (!worker || !selectedTopologyWorkerId) {
+        legend.dataset.selected = "";
+        return;
+      }
+      legend.dataset.selected = workerId;
+      legend.title =
+        `Selected worker ${workerId} · CPU ${Number(worker.metrics?.cpu_percent || 0).toFixed(1)}% · RAM ${Number(worker.metrics?.ram_percent || 0).toFixed(1)}% · ${worker.active_tasks || 0} active job(s)`;
+    }
+
+    topologySvg.addEventListener("click", event => {
+      const workerNode = event.target.closest("[data-worker-id]");
+      if (workerNode) selectTopologyWorker(workerNode.dataset.workerId);
+    });
+    topologySvg.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const workerNode = event.target.closest("[data-worker-id]");
+      if (workerNode) {
+        event.preventDefault();
+        selectTopologyWorker(workerNode.dataset.workerId);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (!latestState) return;
+      const workers = latestState.workers || [];
+      recordHistory(workers);
+    });
   </script>
 </body>
 </html>
