@@ -55,12 +55,65 @@ def combine_csv_results(parts):
 
 
 def split_csv(data: bytes, chunks: int):
+    """Backward-compatible byte chunks used by existing callers."""
     lines = data.splitlines(keepends=True)
     if len(lines) < 2:
         raise ValueError("CSV needs a header and at least one row")
     header, rows = lines[0], lines[1:]
+    if not header.strip():
+        raise ValueError("CSV header is empty")
     width = max(1, math.ceil(len(rows) / max(1, chunks)))
-    return [
-        header + b"".join(rows[i:i + width])
-        for i in range(0, len(rows), width)
-    ]
+    result = []
+    for i in range(0, len(rows), width):
+        result.append(header + b"".join(rows[i:i + width]))
+    return result
+
+
+def split_csv_tasks(data: bytes, chunk_size: int):
+    """Split validated CSV bytes into indexed chunks and expose row offsets."""
+    text = data.decode("utf-8-sig")
+    stream = io.StringIO(text, newline="")
+    reader = csv.reader(stream, strict=True)
+    try:
+        header = next(reader)
+    except StopIteration:
+        raise ValueError("CSV is empty")
+    except csv.Error as error:
+        raise ValueError("malformed CSV header: {}".format(error))
+    if not header or not any(str(column).strip() for column in header):
+        raise ValueError("CSV header is empty")
+    if len(set(header)) != len(header):
+        raise ValueError("CSV header contains duplicate column names")
+
+    parsed_rows = []
+    try:
+        for row in reader:
+            if not row or all(not str(value).strip() for value in row):
+                continue
+            if len(row) != len(header):
+                raise ValueError(
+                    "CSV row {} has {} fields; expected {}".format(
+                        len(parsed_rows) + 2, len(row), len(header)
+                    )
+                )
+            parsed_rows.append(row)
+    except csv.Error as error:
+        raise ValueError("malformed CSV: {}".format(error))
+    if not parsed_rows:
+        raise ValueError("CSV needs at least one data row")
+
+    size = max(1, int(chunk_size))
+    chunks = []
+    for chunk_index, start in enumerate(range(0, len(parsed_rows), size)):
+        rows = parsed_rows[start:start + size]
+        output = io.StringIO(newline="")
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+        chunks.append({
+            "index": chunk_index,
+            "row_offset": start,
+            "row_count": len(rows),
+            "data": output.getvalue().encode("utf-8"),
+        })
+    return chunks

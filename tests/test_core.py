@@ -9,7 +9,12 @@ import threading
 from PIL import Image
 
 from coordinator.scheduler import allocations, choose, eligible, worker_eligibility
-from jobs.csv_processing import process_csv_chunk, combine_csv_results, split_csv
+from jobs.csv_processing import (
+    process_csv_chunk,
+    combine_csv_results,
+    split_csv,
+    split_csv_tasks,
+)
 from jobs.image_processing import process_image
 from worker.hardware_monitor import metrics
 from worker.process_manager import ProcessManager
@@ -42,6 +47,29 @@ def test_csv_partition_and_combine():
     assert result["columns"]["a"]["sum"] == 6
     assert result["columns"]["a"]["mean"] == 2
     assert result["missing"]["b"] == 1
+
+
+def test_indexed_csv_tasks_have_exact_row_coverage():
+    data = b"a,b\n1,x\n2,y\n3,z\n4,w\n"
+    chunks = split_csv_tasks(data, 2)
+    assert [chunk["row_offset"] for chunk in chunks] == [0, 2]
+    assert [chunk["row_count"] for chunk in chunks] == [2, 2]
+    assert [chunk["index"] for chunk in chunks] == [0, 1]
+
+    reconstructed = []
+    for chunk in chunks:
+        text = chunk["data"].decode("utf-8")
+        reconstructed.extend(text.splitlines()[1:])
+    assert reconstructed == ["1,x", "2,y", "3,z", "4,w"]
+
+
+def test_malformed_csv_is_rejected():
+    try:
+        split_csv_tasks(b"a,a\n1,2\n", 100)
+    except ValueError as error:
+        assert "duplicate" in str(error)
+    else:
+        raise AssertionError("duplicate CSV header was accepted")
 
 
 def test_image_resize():
@@ -293,6 +321,7 @@ def make_state_coordinator():
     coordinator.accepting_jobs = True
     coordinator.running = True
     coordinator.shutdown_requested = False
+    coordinator.socket_locks = {}
     return coordinator
 
 
@@ -690,4 +719,32 @@ def test_weighted_allocation_and_distribution_across_two_workers():
     assert len(set(assigned)) == 2
     assert assigned.count("worker-a") == 2
     assert assigned.count("worker-b") == 2
+
+
+def test_old_connection_disconnect_cannot_mark_new_session_offline():
+    coordinator = make_state_coordinator()
+    old_socket = object()
+    new_socket = object()
+    coordinator.register(
+        {
+            "secret": secret(),
+            "worker_id": "stable-worker",
+            "machine_id": "12345678-1234-4234-8234-123456789abc",
+            "hostname": "worker",
+            "metrics": _eligible_metrics(),
+        },
+        old_socket,
+    )
+    coordinator.register(
+        {
+            "secret": secret(),
+            "worker_id": "stable-worker",
+            "machine_id": "12345678-1234-4234-8234-123456789abc",
+            "hostname": "worker",
+            "metrics": _eligible_metrics(),
+        },
+        new_socket,
+    )
+    coordinator.disconnect("stable-worker", old_socket)
+    assert coordinator.workers["stable-worker"]["connected"] is True
 

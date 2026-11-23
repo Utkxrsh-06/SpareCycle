@@ -3,6 +3,7 @@ import socket
 import threading
 import time
 import uuid
+import random
 
 from shared.config import Limits, secret
 from shared.machine_identity import get_machine_id
@@ -30,6 +31,13 @@ class WorkerClient:
         self.cleanup_complete = False
         self.heartbeat_thread = None
         self.execution_threads = set()
+        self.write_lock = threading.Lock()
+
+    def _send(self, payload):
+        if not self.sock:
+            raise ConnectionError("worker socket is not connected")
+        with self.write_lock:
+            send(self.sock, payload)
 
     def run(self):
         delay = 1
@@ -41,8 +49,7 @@ class WorkerClient:
                         timeout=1,
                     )
                     self.sock.settimeout(0.5)
-                    send(
-                        self.sock,
+                    self._send(
                         message(
                             "REGISTER",
                             worker_id=self.id,
@@ -52,7 +59,7 @@ class WorkerClient:
                             metrics=metrics(),
                             uptime=time.time() - self.started,
                             secret=secret(),
-                        ),
+                        )
                     )
                     ack = receive(self.sock)
                     if ack.get("type") != "REGISTER_ACK":
@@ -93,21 +100,20 @@ class WorkerClient:
                     pass
                 if self.shutdown_event.wait(delay):
                     break
-                delay = min(delay * 2, 15)
+                delay = min(delay * 2, 15) + random.uniform(0, 0.25)
         finally:
             self.stop()
 
     def _heartbeats(self):
         while self.running and self.sock and not self.shutdown_event.is_set():
             try:
-                send(
-                    self.sock,
+                self._send(
                     message(
                         "HEARTBEAT",
                         machine_id=self.machine_id,
                         hostname=self.hostname,
                         metrics=metrics(),
-                    ),
+                    )
                 )
             except OSError:
                 return
@@ -223,20 +229,18 @@ class WorkerClient:
                     execution.get("error", "job process failed")
                 )
 
-            send(
-                self.sock,
+            self._send(
                 message(
                     "JOB_RESULT",
                     job_id=payload["job_id"],
                     task_id=payload["task_id"],
                     result=execution["result"],
                     process=execution.get("process"),
-                ),
+                )
             )
         except Exception as error:
             try:
-                send(
-                    self.sock,
+                self._send(
                     message(
                         "JOB_FAILED",
                         job_id=payload.get("job_id"),
@@ -247,7 +251,7 @@ class WorkerClient:
                             if execution
                             else None
                         ),
-                    ),
+                    )
                 )
             except OSError:
                 pass

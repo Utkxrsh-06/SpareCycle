@@ -10,7 +10,7 @@ from pathlib import Path
 
 from coordinator.database import Database
 from coordinator.scheduler import choose, worker_eligibility
-from jobs.csv_processing import combine_csv_results, split_csv
+from jobs.csv_processing import combine_csv_results, split_csv_tasks
 from shared.config import Limits, secret
 from shared.protocol import checksum, message, receive, send
 
@@ -26,6 +26,7 @@ class Coordinator:
         self.accepting_jobs = True
         self.running = True
         self.shutdown_requested = False
+        self.socket_locks = {}
 
         for job in self.db.jobs():
             self.jobs[job["id"]] = job
@@ -178,6 +179,12 @@ class Coordinator:
         now = time.time()
 
         with self.lock:
+            previous = self.workers.get(worker_id)
+            active_tasks = (
+                previous.get("active_tasks", 0)
+                if previous and previous.get("connected")
+                else 0
+            )
             self.workers[worker_id] = {
                 "id": worker_id,
                 "name": payload.get("name", worker_id),
@@ -187,9 +194,14 @@ class Coordinator:
                 "connected": True,
                 "last_heartbeat": now,
                 "socket": client_socket,
-                "active_tasks": 0,
+                "active_tasks": active_tasks,
                 "uptime": payload.get("uptime", 0),
             }
+            locks = getattr(self, "socket_locks", None)
+            if locks is None:
+                locks = {}
+                self.socket_locks = locks
+            locks[client_socket] = threading.Lock()
 
         return worker_id
 
@@ -206,10 +218,28 @@ class Coordinator:
                     or self.workers[worker_id].get("hostname"),
                 )
 
-    def disconnect(self, worker_id):
+    def send_to_worker(self, worker, payload):
+        client_socket = worker.get("socket")
+        if not client_socket:
+            raise ConnectionError("worker socket is unavailable")
+        locks = getattr(self, "socket_locks", None)
+        if locks is None:
+            locks = {}
+            self.socket_locks = locks
+        lock = locks.setdefault(client_socket, threading.Lock())
+        with lock:
+            send(client_socket, payload)
+
+    def disconnect(self, worker_id, client_socket=None):
         job_ids = []
         with self.lock:
             worker = self.workers.get(worker_id)
+            if (
+                client_socket is not None
+                and worker
+                and worker.get("socket") is not client_socket
+            ):
+                return
             if worker:
                 worker["connected"] = False
             for job in self.jobs.values():
@@ -234,7 +264,7 @@ class Coordinator:
         for job_id in job_ids:
             self.dispatch(job_id)
 
-    def create_csv(self, name, data, strategy):
+    def create_csv(self, name, data, strategy, chunk_size=None):
         if not self.accepting_jobs:
             raise RuntimeError("coordinator is shutting down")
         with self.lock:
@@ -251,7 +281,12 @@ class Coordinator:
                 "finished": None,
             }
 
-            chunks = split_csv(data, max(1, len(self.workers) * 2))
+            configured_size = (
+                chunk_size
+                if chunk_size is not None
+                else getattr(self.limits, "csv_chunk_size", 1000)
+            )
+            chunks = split_csv_tasks(data, max(1, int(configured_size)))
             job["total"] = len(chunks)
 
             for chunk in chunks:
@@ -259,10 +294,13 @@ class Coordinator:
                 job["tasks"][task_id] = {
                     "id": task_id,
                     "status": "queued",
-                    "data": base64.b64encode(chunk).decode(),
+                    "data": base64.b64encode(chunk["data"]).decode(),
                     "attempts": 0,
                     "worker": None,
                     "result": None,
+                    "chunk_index": chunk["index"],
+                    "row_offset": chunk["row_offset"],
+                    "row_count": chunk["row_count"],
                 }
 
             self.jobs[job["id"]] = job
@@ -308,8 +346,8 @@ class Coordinator:
                 try:
                     raw_data = base64.b64decode(task["data"])
 
-                    send(
-                        worker["socket"],
+                    self.send_to_worker(
+                        worker,
                         message(
                             "JOB_ASSIGN",
                             job_id=job_id,
@@ -435,7 +473,13 @@ class Coordinator:
 
         for client_socket in sockets:
             try:
-                send(client_socket, message("WORKER_SHUTDOWN"))
+                locks = getattr(self, "socket_locks", None)
+                if locks is None:
+                    locks = {}
+                    self.socket_locks = locks
+                lock = locks.setdefault(client_socket, threading.Lock())
+                with lock:
+                    send(client_socket, message("WORKER_SHUTDOWN"))
             except OSError:
                 pass
 
@@ -507,7 +551,7 @@ class Handler(socketserver.BaseRequestHandler):
 
         except Exception:
             if worker_id and worker_id in self.server.app.workers:
-                self.server.app.disconnect(worker_id)
+                self.server.app.disconnect(worker_id, self.request)
 
     def http(self):
         raw = self.request.recv(65536)
@@ -543,6 +587,7 @@ class Handler(socketserver.BaseRequestHandler):
                         request_data.get("name", "dataset.csv"),
                         base64.b64decode(request_data["data"]),
                         request_data.get("strategy", "weighted"),
+                        request_data.get("chunk_size"),
                     )
                     body = json.dumps({"id": job["id"]}).encode()
                     status = "201 Created"

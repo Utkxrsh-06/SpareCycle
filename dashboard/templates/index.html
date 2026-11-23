@@ -682,6 +682,7 @@
     let latestState = null;
     let selectedTopologyWorkerId = null;
     let pollTimer = null;
+    let stateLoadInFlight = false;
     let workerChartIds = "";
     let renderSignatures = {
       summary: "",
@@ -1305,12 +1306,16 @@
         );
         const onlineWorkers = orderedWorkers.filter(worker => worker.connected);
         const offlineCount = orderedWorkers.length - onlineWorkers.length;
-        const workerCards = onlineWorkers.map(worker => {
+        const workerCards = orderedWorkers.map(worker => {
           const metrics = worker.metrics || {};
           const cpu = Number(metrics.cpu_percent || 0);
           const ram = Number(metrics.ram_percent || 0);
           const availableRam = Number(metrics.available_ram || 0);
           const workerNumber = workerNumbers.get(worker.id);
+          const eligible = worker.eligible === true;
+          const eligibilityReason = worker.eligibility_reason || (
+            worker.connected ? "Eligibility has not been evaluated" : "Worker is disconnected"
+          );
           return `
             <article class="worker">
               <div class="worker-head">
@@ -1318,8 +1323,9 @@
                   <div class="worker-name">Worker #${workerNumber} · ${escapeHtml(worker.name || "Worker")}</div>
                   <div class="worker-id">${escapeHtml(worker.id ? worker.id.slice(0, 12) : "unknown")}</div>
                 </div>
-                <span class="status online">online</span>
+                <span class="status ${worker.connected ? (eligible ? "online" : "running") : "offline"}">${worker.connected ? (eligible ? "eligible" : "limited") : "offline"}</span>
               </div>
+              <div class="metric-detail" style="margin:0 0 10px">${escapeHtml(eligibilityReason)}</div>
               <div class="resource-row">
                 <div class="resource-label"><span>CPU utilization</span><strong>${cpu.toFixed(1)}%</strong></div>
                 <div class="bar"><div class="bar-fill" style="width:${Math.min(100, cpu)}%"></div></div>
@@ -1432,6 +1438,8 @@
     }
 
     async function loadState() {
+      if (stateLoadInFlight) return;
+      stateLoadInFlight = true;
       try {
         const response = await fetch(stateUrl, { cache: "no-store" });
         if (!response.ok) throw new Error(`Coordinator returned ${response.status}`);
@@ -1517,6 +1525,8 @@
         const banner = document.querySelector("#error-banner");
         banner.textContent = `Unable to reach the coordinator: ${error.message}`;
         banner.classList.add("visible");
+      } finally {
+        stateLoadInFlight = false;
       }
     }
 

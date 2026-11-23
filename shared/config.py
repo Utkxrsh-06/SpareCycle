@@ -11,6 +11,7 @@ class Limits:
     task_timeout_seconds: float = float(os.getenv("SPARECYCLE_TASK_TIMEOUT", "120"))
     max_retries: int = int(os.getenv("SPARECYCLE_MAX_RETRIES", "2"))
     shutdown_grace_seconds: float = float(os.getenv("SPARECYCLE_SHUTDOWN_GRACE", "5"))
+    csv_chunk_size: int = int(os.getenv("SPARECYCLE_CSV_CHUNK_SIZE", "1000"))
 
 def secret() -> str:
     return os.getenv("SPARECYCLE_SECRET", "change-me-for-a-real-lan")
