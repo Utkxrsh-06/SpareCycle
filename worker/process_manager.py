@@ -231,10 +231,15 @@ class ProcessManager:
                 self._process.stdin.write(
                     json.dumps(payload, separators=(",", ":")).encode("utf-8")
                 )
+                self._process.stdin.flush()
             except (BrokenPipeError, OSError):
                 pass
             finally:
-                self._process.stdin.close()
+                try:
+                    self._process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                self._process.stdin = None
             stdout, stderr = self._process.communicate(
                 timeout=max(5, self.timeout + 5)
             )
@@ -352,10 +357,15 @@ class ProcessManager:
         try:
             try:
                 process.stdin.write(stdin)
+                process.stdin.flush()
             except (BrokenPipeError, OSError):
                 pass
             finally:
-                process.stdin.close()
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                process.stdin = None
 
             while process.poll() is None:
                 elapsed = time.monotonic() - started

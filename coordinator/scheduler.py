@@ -1,15 +1,50 @@
+import time
+
 from shared.config import Limits
 
-def eligible(workers, limits=Limits()):
+
+def worker_eligibility(worker, limits=Limits(), now=None):
+    now = time.time() if now is None else now
+    metrics = worker.get("metrics") or {}
+
+    if not worker.get("connected"):
+        return False, "worker is disconnected"
+    if not metrics:
+        return False, "worker has no metrics"
+
+    timestamp = metrics.get("timestamp")
+    if not isinstance(timestamp, (int, float)):
+        return False, "metrics timestamp is missing"
+    metric_age = now - timestamp
+    metric_age_limit = getattr(limits, "worker_timeout_seconds", 10)
+    if metric_age < -60 or metric_age > metric_age_limit:
+        return False, "metrics are stale ({:.1f}s old)".format(metric_age)
+
+    try:
+        cpu = float(metrics["cpu_percent"])
+        ram = float(metrics["ram_percent"])
+    except (KeyError, TypeError, ValueError):
+        return False, "metrics contain invalid CPU or RAM values"
+
+    cpu_limit = limits.max_cpu_percent - limits.cpu_safety_margin
+    if not 0 <= cpu <= 100:
+        return False, "CPU metric is outside 0-100%"
+    if not 0 <= ram <= 100:
+        return False, "RAM metric is outside 0-100%"
+    if cpu >= cpu_limit:
+        return False, "CPU {:.1f}% is at/above effective limit {:.1f}%".format(cpu, cpu_limit)
+    if ram >= limits.max_ram_percent:
+        return False, "RAM {:.1f}% is at/above limit {:.1f}%".format(ram, limits.max_ram_percent)
+    return True, "eligible: CPU {:.1f}%/{:.1f}%, RAM {:.1f}%/{:.1f}%".format(
+        cpu, cpu_limit, ram, limits.max_ram_percent
+    )
+
+
+def eligible(workers, limits=Limits(), now=None):
     return [
         worker
         for worker in workers
-        if worker["connected"]
-        and worker.get("metrics")
-        and worker["metrics"].get("cpu_percent", 100)
-        < limits.max_cpu_percent - limits.cpu_safety_margin
-        and worker["metrics"].get("ram_percent", 100)
-        < limits.max_ram_percent
+        if worker_eligibility(worker, limits, now)[0]
     ]
 
 def score(worker, limits=Limits(), max_cores=None):

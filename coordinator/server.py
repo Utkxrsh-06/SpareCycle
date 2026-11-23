@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 
 from coordinator.database import Database
-from coordinator.scheduler import choose
+from coordinator.scheduler import choose, worker_eligibility
 from jobs.csv_processing import combine_csv_results, split_csv
 from shared.config import Limits, secret
 from shared.protocol import checksum, message, receive, send
@@ -96,7 +96,8 @@ class Coordinator:
                     job["status"] == "running"
                     and task["status"] in ("queued", "assigned", "running")
                 ):
-                    task["status"] = "interrupted"
+                    task["status"] = "queued"
+                    task["worker"] = None
                     tasks_changed = True
             if tasks_changed:
                 changed = True
@@ -113,8 +114,9 @@ class Coordinator:
     def worker_list(self):
         with self.lock:
             now = time.time()
+            limits = getattr(self, "limits", Limits())
             timeout = getattr(
-                getattr(self, "limits", None),
+                limits,
                 "worker_timeout_seconds",
                 Limits().worker_timeout_seconds,
             )
@@ -128,13 +130,21 @@ class Coordinator:
                     stale_ids.append(worker["id"])
             for worker_id in stale_ids:
                 self.disconnect(worker_id)
-            return [dict(worker, socket=None) for worker in self.workers.values()]
+            workers = []
+            for worker in self.workers.values():
+                item = dict(worker, socket=None)
+                eligible, reason = worker_eligibility(worker, limits, now)
+                item["eligible"] = eligible
+                item["eligibility_reason"] = reason
+                workers.append(item)
+            return workers
 
     def connected_worker_list(self):
         with self.lock:
             now = time.time()
+            limits = getattr(self, "limits", Limits())
             timeout = getattr(
-                getattr(self, "limits", None),
+                limits,
                 "worker_timeout_seconds",
                 Limits().worker_timeout_seconds,
             )
@@ -148,11 +158,17 @@ class Coordinator:
                     stale_ids.append(worker["id"])
             for worker_id in stale_ids:
                 self.disconnect(worker_id)
-            return [
-                dict(worker, socket=None)
-                for worker in self.workers.values()
-                if worker.get("connected")
-            ]
+            workers = []
+            for worker in self.workers.values():
+                if worker.get("connected"):
+                    item = dict(worker, socket=None)
+                    eligible, reason = worker_eligibility(
+                        worker, limits, now
+                    )
+                    item["eligible"] = eligible
+                    item["eligibility_reason"] = reason
+                    workers.append(item)
+            return workers
 
     def register(self, payload, client_socket):
         if payload.get("secret") != secret():
@@ -307,6 +323,7 @@ class Coordinator:
                 except OSError:
                     worker["connected"] = False
                     task["status"] = "queued"
+                    task["worker"] = None
                     worker["active_tasks"] -= 1
 
             self.db.save_job(job)
@@ -359,7 +376,7 @@ class Coordinator:
                 "cancelled",
                 "failed",
                 "interrupted",
-            ):
+            ) and task.get("worker") == worker_id:
                 worker = self.workers.get(worker_id, {})
                 worker["active_tasks"] = max(0, worker.get("active_tasks", 1) - 1)
                 task["process"] = payload.get("process")

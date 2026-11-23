@@ -8,7 +8,7 @@ import threading
 
 from PIL import Image
 
-from coordinator.scheduler import allocations
+from coordinator.scheduler import allocations, choose, eligible, worker_eligibility
 from jobs.csv_processing import process_csv_chunk, combine_csv_results, split_csv
 from jobs.image_processing import process_image
 from worker.hardware_monitor import metrics
@@ -68,6 +68,7 @@ def test_weighted_prefers_idle_machine():
                 "available_ram": 3000,
                 "total_ram": 10000,
                 "logical_cores": 4,
+                "timestamp": time.time(),
             },
         },
         {
@@ -80,6 +81,7 @@ def test_weighted_prefers_idle_machine():
                 "available_ram": 8000,
                 "total_ram": 10000,
                 "logical_cores": 8,
+                "timestamp": time.time(),
             },
         },
     ]
@@ -99,6 +101,20 @@ def test_allowlisted_job_runs_in_child_process():
     assert result["process"]["pid"] > 0
     assert result["process"]["exit_code"] == 0
     assert result["process"]["elapsed_seconds"] >= 0
+
+
+def test_python_fallback_collects_output_without_closed_stdin_flush():
+    payload = {
+        "job_type": "benchmark",
+        "data": base64.b64encode(b"").decode(),
+        "params": {"start": 1, "end": 1000},
+    }
+    manager = ProcessManager(timeout=5)
+    manager.native = None
+    result = manager.run(payload)
+    assert result["ok"] is True
+    assert result["result"]["value"] >= 0
+    assert result["process"]["exit_code"] == 0
 
 def test_job_process_timeout_terminates_child():
     payload = {
@@ -411,8 +427,9 @@ def test_coordinator_restart_marks_running_tasks_interrupted():
     coordinator.jobs[job["id"]] = job
     coordinator._reconcile_after_restart()
     assert job["tasks"]["task-1"]["status"] == "completed"
-    assert job["tasks"]["task-2"]["status"] == "interrupted"
-    assert job["status"] == "interrupted"
+    assert job["tasks"]["task-2"]["status"] == "queued"
+    assert job["tasks"]["task-2"]["worker"] is None
+    assert job["status"] == "running"
 
 
 def test_shutdown_marks_workers_offline_and_jobs_interrupted():
@@ -541,4 +558,136 @@ def test_worker_shutdown_event_wakes_reconnect_loop():
     assert not run_thread.is_alive()
     assert elapsed < 3
     assert worker.cleanup_complete is True
+
+
+def _eligible_metrics(cpu=10, ram=30, timestamp=None):
+    return {
+        "cpu_percent": cpu,
+        "ram_percent": ram,
+        "available_ram": 7000,
+        "total_ram": 10000,
+        "logical_cores": 4,
+        "timestamp": time.time() if timestamp is None else timestamp,
+    }
+
+
+def test_round_robin_cycles_across_three_eligible_workers():
+    workers = [
+        {"id": "worker-1", "connected": True, "metrics": _eligible_metrics()},
+        {"id": "worker-2", "connected": True, "metrics": _eligible_metrics()},
+        {"id": "worker-3", "connected": True, "metrics": _eligible_metrics()},
+    ]
+    selected = [
+        choose(workers, "round_robin", counter)["id"]
+        for counter in range(6)
+    ]
+    assert selected == [
+        "worker-1", "worker-2", "worker-3",
+        "worker-1", "worker-2", "worker-3",
+    ]
+
+
+def test_ineligible_worker_is_excluded_and_can_become_eligible():
+    worker = {
+        "id": "worker-windows",
+        "connected": True,
+        "metrics": _eligible_metrics(ram=78),
+    }
+    allowed, reason = worker_eligibility(worker, Limits())
+    assert allowed is False
+    assert "RAM" in reason
+
+    worker["metrics"] = _eligible_metrics(ram=50)
+    allowed, reason = worker_eligibility(worker, Limits())
+    assert allowed is True
+    assert "eligible" in reason
+
+
+def test_stale_or_unavailable_metrics_are_ineligible():
+    stale = {
+        "id": "worker-stale",
+        "connected": True,
+        "metrics": _eligible_metrics(timestamp=time.time() - 120),
+    }
+    missing = {"id": "worker-missing", "connected": True, "metrics": {}}
+    now = time.time()
+    assert eligible([stale, missing], Limits(), now) == []
+    assert "stale" in worker_eligibility(stale, Limits(), now)[1]
+    assert "no metrics" in worker_eligibility(missing, Limits(), now)[1]
+
+
+def test_least_loaded_selects_lower_active_worker():
+    workers = [
+        {
+            "id": "busy",
+            "connected": True,
+            "active_tasks": 3,
+            "metrics": _eligible_metrics(),
+        },
+        {
+            "id": "idle",
+            "connected": True,
+            "active_tasks": 0,
+            "metrics": _eligible_metrics(),
+        },
+    ]
+    assert choose(workers, "least_loaded")["id"] == "idle"
+
+
+def test_weighted_allocation_and_distribution_across_two_workers():
+    workers = [
+        {
+            "id": "worker-a",
+            "connected": True,
+            "active_tasks": 0,
+            "metrics": _eligible_metrics(cpu=5, ram=20),
+        },
+        {
+            "id": "worker-b",
+            "connected": True,
+            "active_tasks": 0,
+            "metrics": _eligible_metrics(cpu=40, ram=60),
+        },
+    ]
+    allocation = allocations(workers, "weighted")
+    assert allocation["worker-a"] > allocation["worker-b"]
+    assert round(sum(allocation.values()), 6) == 1
+
+    coordinator = make_state_coordinator()
+    class Socket:
+        def sendall(self, data):
+            pass
+
+    coordinator.workers = {
+        "worker-a": dict(workers[0], socket=Socket()),
+        "worker-b": dict(workers[1], socket=Socket()),
+    }
+    job = {
+        "id": "distribution",
+        "name": "four tasks",
+        "type": "csv",
+        "status": "queued",
+        "strategy": "round_robin",
+        "created": time.time(),
+        "started": None,
+        "finished": None,
+        "result": None,
+        "tasks": {
+            "task-{}".format(index): {
+                "id": "task-{}".format(index),
+                "status": "queued",
+                "data": base64.b64encode(b"a\n1\n").decode(),
+                "attempts": 0,
+                "worker": None,
+                "result": None,
+            }
+            for index in range(4)
+        },
+    }
+    coordinator.jobs[job["id"]] = job
+    coordinator.dispatch(job["id"])
+    assigned = [task["worker"] for task in job["tasks"].values()]
+    assert len(set(assigned)) == 2
+    assert assigned.count("worker-a") == 2
+    assert assigned.count("worker-b") == 2
 
